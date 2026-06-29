@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0a1be8860ceb1a84f891dd9892c85203, type: 3}
+  m_Name: Emote
+  m_EditorClassIdentifier: 
+  bundleMode: 4
+  folderNum: 10
+  entries:
+  - {fileID: 102900000, guid: b9e197b6edb8143cd95f819c08aec488, type: 3}
+  - {fileID: 102900000, guid: 3c505dfb2fcdcdf4db340feb3f4ccda9, type: 3}
+  - {fileID: 102900000, guid: b9c264f55d18e5c45bd4a2f72ff7db9f, type: 3}
+  - {fileID: 102900000, guid: 8a198b170fce0da458a41d775f921a30, type: 3}
+  - {fileID: 102900000, guid: b1c7d6023341d66468c208d0a349a9d3, type: 3}
+  - {fileID: 102900000, guid: 413ae6b0f075e427693ac3a1246057d7, type: 3}
+  filter: 

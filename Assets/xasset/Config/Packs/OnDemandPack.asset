@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a81e541f879142cb976e3c5b83a2cdf6, type: 3}
+  m_Name: OnDemandPack
+  m_EditorClassIdentifier: 
+  id: 0
+  desc: 
+  deliveryMode: 2
+  assets:
+  - {fileID: 11400000, guid: 74ff23c064426c44c88a3c018f265d28, type: 2}
+  - {fileID: 11400000, guid: e1caf442e60ed1c4fb5ef45589e5afa5, type: 2}
+  - {fileID: 11400000, guid: e201050bbd2735342bba943020fb2bed, type: 2}
+  - {fileID: 11400000, guid: dd8a8bc73dd80074080d0d99ddd3e8de, type: 2}
+  - {fileID: 11400000, guid: 879fb7e531048467fb4b52a741fc305a, type: 2}
+  - {fileID: 11400000, guid: a5d16bff62e0c4ce89e5cd0039f7043f, type: 2}
+  - {fileID: 11400000, guid: b1f844375653f44249e3ea117e86aca6, type: 2}
+  - {fileID: 11400000, guid: 0650e4eee4363463a82b42391fa150e5, type: 2}

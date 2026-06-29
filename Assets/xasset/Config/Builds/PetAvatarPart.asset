@@ -1,0 +1,33 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a742b6dc77d4f9c4ca2284e0b86b9a23, type: 3}
+  m_Name: PetAvatarPart
+  m_EditorClassIdentifier: 
+  parameters:
+    buildNumber: 0
+    autoGrouping: 0
+    forceRebuild: 0
+    options: 256
+    groups:
+    - {fileID: 11400000, guid: b28b2cc5ea91440e4974effb1a6adbbe, type: 2}
+    - {fileID: 11400000, guid: dccef2a49fe054a6c9c99b4d5eb97421, type: 2}
+    - {fileID: 11400000, guid: 18236acb9ad9f458381f84886f554f85, type: 2}
+    - {fileID: 11400000, guid: bf20fdf08ff374212962f6542f5afefb, type: 2}
+    - {fileID: 11400000, guid: 4c8efc881c1dc4e939a03b694793d2a4, type: 2}
+    - {fileID: 11400000, guid: ee623821427844f35af6cc72bff44458, type: 2}
+    - {fileID: 11400000, guid: 0787a3261b0c140bfbb70595cdb4d843, type: 2}
+    - {fileID: 11400000, guid: 2d8b89b6f6b7540f896c2b7512c2da79, type: 2}
+    - {fileID: 11400000, guid: 9b3440817ce8b484aaf5b86ccd1c2c91, type: 2}
+    - {fileID: 11400000, guid: 191d26667e62c4459b7007ae7cf1f87f, type: 2}
+    - {fileID: 11400000, guid: 4ccb26c0e9ecc447aab64840aa93c3be, type: 2}
+    - {fileID: 11400000, guid: f9bb7c8e4e33840e9b76e37d17ebf2d1, type: 2}
+    - {fileID: 11400000, guid: 0ad49b5249342443a92ba45361432871, type: 2}
