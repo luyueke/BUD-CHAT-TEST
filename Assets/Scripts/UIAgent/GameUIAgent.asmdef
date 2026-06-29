@@ -1,0 +1,4 @@
+{
+	"name": "GameUIAgent",
+	"references":[ "GUID:7de8fcb2f41d448880b77c209e11b9e8", "GUID:91724b6d4540fd642abec0b66ee7d58f", "GUID:6f5118a4e28ddbf4dafd0b38683f14ac" ]
+}

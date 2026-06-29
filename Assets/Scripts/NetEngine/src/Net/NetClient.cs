@@ -1,0 +1,231 @@
+using System;
+using System.Collections.Generic;
+using Pb.Base;
+using GooglePB = global::Google.Protobuf;
+using NetEngine.src.EventUploader;
+using NetEngine.src.Util;
+
+namespace NetEngine.src.Net
+{
+    public class NetClient : Net
+    {
+        private readonly int _maxDataLength = Convert.ToInt32(Math.Pow(2, 14));
+        private readonly BstCallbacks _bstCallbacks;
+        private static Dictionary<int, Action<byte[]>> _requestMap;
+
+        public NetClient(BstCallbacks bstCallbacks)
+        {
+            this._bstCallbacks = bstCallbacks;
+        }
+
+        // 发送消息请求
+        public string SendRequest(Object body, int subcmd, NetResponseCallback response, Action<ResponseEvent> callback,
+            string cmd, string seq)
+        {
+            if (seq.Length == 0)
+            {
+                seq = Guid.NewGuid().ToString();
+                var sendQueueVal = new SendQueueValue
+                {
+                    Time = DateTime.Now,
+                    IsSocketSend = false,
+                    Cmd = (int)subcmd,
+                    resend = () => this.SendRequest(body, subcmd, response, callback, cmd, seq),
+                    response = msg =>
+                    {
+                        response(true, msg, callback);
+                        DeleteSendQueue(seq);
+                    }
+                };
+                sendQueueVal.sendSuccess = () =>
+                {
+                    // if(Socket.Id == 1) Debugger.Log("handle send success {0}", seq);
+                    sendQueueVal.IsSocketSend = true;
+                    if (subcmd == (int) ClientSendServerCmd.EPushFrameData)
+                    {
+                        //清理已发送的帧数据，防止buffer溢出
+                        DeleteSendQueue (seq);
+                    }
+                };
+                sendQueueVal.remove = () => { DeleteSendQueue(seq); };
+                sendQueueVal.sendFail = (errCode, errMsg) =>
+                {
+                    var errMessage = "消息发送失败，" + errMsg + "[" + errCode + "]";
+                    var rspPacket = new ServerSendClientRsp
+                    {
+                        Seq = seq,
+                        Code = errCode,
+                        // ErrMsg = errMessage
+                    };
+                    response(false, new DecodeRspResult
+                    {
+                        Packet = rspPacket,
+                    }, callback);
+                    DeleteSendQueue(seq);
+                };
+                AddSendQueue(seq, sendQueueVal);
+            }
+
+            // PB request = new PB();
+
+            var qAppRequest = new ClientSendServerReq
+            {
+                //Version = RequestHeader.Version,
+                //AppName = RequestHeader.AppName,
+                //ClientIp = RequestHeader.ClientIp,
+                //ServiceIp = RequestHeader.ServiceIp,
+                //Business = RequestHeader.Business,
+                //AuthKey = RequestHeader.AuthKey,
+                //AuthType = RequestHeader.AuthType,
+                //AuthIp = RequestHeader.AuthIp,
+                //GameId = RequestHeader.GameId,
+                //Uid = RequestHeader.Uid,
+                //PlayerId = RequestHeader.PlayerId,
+                Cmd = (ClientSendServerCmd)subcmd,
+                Seq = seq
+            };
+            // qAppRequest.Metadata.Add("userId", Player.Id);
+            //var accessReq = new ClientSendServerReqWrap2 ();
+            //accessReq.Cmd = (ClientSendServerReqCmd) subcmd;
+            // Debugger.LogWithSockId(SocketClient.Id, $"[Send][CMD={qAppRequest.Cmd}][Seq={qAppRequest.Seq}] {body.ToString()}");
+            var data = Util.Pb.EncodeReq(qAppRequest, (GooglePB::IMessage)body);
+
+            if (data.Length > _maxDataLength)
+            {
+                SendQueueValue val = null;
+                SendQueue.TryGetValue(seq + "", out val);
+                var timer = new Timer();
+                timer.SetTimeout(() =>
+                {
+                    // if (val != null) val.sendFail((int)ProtoErrCode.EcSdkSendFail, "数据长度超限");
+                    timer.Stop();
+                    timer.Close();
+                }, 1);
+                return seq;
+            }
+
+            var reqData = BuildData(data);
+
+            ////UnityEngine.Debug.Log(reqData.ToString());
+            //string str = "";
+            //foreach (var b in reqData)
+            //{
+            //    str = str + b.ToString() + ", ";
+            //    //UnityEngine.Debug.Log(b.ToString() + " ");
+            //}
+            //UnityEngine.Debug.Log(str);
+
+            return this.Send(reqData, seq, (ClientSendServerCmd)subcmd);
+        }
+
+        private static byte[] BuildData(byte[] data)
+        {
+            return BuildData((byte)MessageDataTag.ClientPre, data, (byte)MessageDataTag.ClientEnd);
+        }
+
+        // 接收响应并处理
+        public void HandleMessage(DecodeRspResult repResult)
+        {
+            try
+            {
+                var seq = repResult.Packet.Seq;
+
+                SendQueueValue val = null;
+                SendQueue.TryGetValue(seq + "", out val);
+
+                var callback = val?.response;
+
+                if (val == null)
+                {
+                    Debugger.Log($"SendQueue.TryGetValue is null={seq}");
+                    return;
+                    // 处理错误码，并拦截 value.response
+                }
+
+                ReqEventParam param = new ReqEventParam();
+                param.RqCmd = val.Cmd;
+                param.RqSq = repResult.Packet.Seq;
+                param.RqCd = (int)repResult.Packet.Code;
+                param.Time = Convert.ToInt64((DateTime.Now - val.Time).TotalMilliseconds);
+                // EventUpload.PushRequestEvent(param);
+
+                // 心跳不拦截
+                if (val.Cmd != (int)ClientSendServerCmd.ECmdHeartBeatReq && HandleErrCode(repResult.Packet))
+                {
+                    return;
+                }
+
+                callback?.Invoke(repResult);
+                return;
+            }
+            catch (Exception e)
+            {
+                Debugger.Log(e.ToString());
+            }
+        }
+
+        // 处理登录失败
+        // private void HandleTokenErr()
+        // {
+        //     // 重登录
+        //     UserStatus.SetStatus(UserStatus.StatusType.Logout);
+        //     this.SocketClient.Emit("autoAuth", null);
+        // }
+
+        // // 处理checklogin connect失败
+        // private void HandleRelayConnectErr()
+        // {
+        //     Debugger.Log("handle relay connect err");
+        //     // 重checklogin
+        //     CheckLoginStatus.SetStatus(CheckLoginStatus.StatusType.Offline);
+        //     this.SocketClient.Emit("autoAuth", null);
+        // }
+
+        // 处理异常错误码
+        // 返回 true 会拦截 responses 回调
+        private bool HandleErrCode(ServerSendClientRsp res)
+        {
+            // Debugger.Log("handle errcode {0}", res.ErrCode);
+            // if (IsTokenError(res.Code))
+            // {
+            //     this.HandleTokenErr();
+            //     Debugger.Log("TOKEN_ERROR", res);
+            //     return true;
+            // }
+
+            // if (IsRelayConnectError(res.Code) && this.SocketClient.Id == (int)ConnectionType.Common)
+            // {
+            //     this.HandleRelayConnectErr();
+            //     Debugger.Log("RELAY_CONNECT_ERROR", res);
+            //     return true;
+            // }
+
+            return false;
+        }
+
+        // private static bool IsTokenError(int code)
+        // {
+        //     var res = code == ErrorCode.EcAccessCmdGetTokenErr ||
+        //               code == ErrorCode.EcAccessCmdTokenPreExpire ||
+        //               code == ErrorCode.EcAccessCmdInvalidToken ||
+        //               code == ErrorCode.EcAccessGetCommConnectErr;
+
+        //     return res;
+        // }
+
+        // private static bool IsRelayConnectError(int errCode)
+        // {
+        //     var res = errCode == ErrCode.EcAccessGetRelayConnectErr;
+        //     return res;
+        // }
+
+        // 如果返回码正确
+        public static void HandleSuccess(int code, Action callback)
+        {
+            if (code == 0)
+            {
+                callback();
+            }
+        }
+    }
+}

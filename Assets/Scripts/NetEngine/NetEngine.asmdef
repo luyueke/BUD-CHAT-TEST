@@ -1,0 +1,19 @@
+{
+    "name": "NetEngine",
+    "rootNamespace": "",
+    "references": [
+        "GUID:91724b6d4540fd642abec0b66ee7d58f",
+        "GUID:7de8fcb2f41d448880b77c209e11b9e8",
+        "GUID:9545ef765a3346609e490bf95b45888e",
+        "GUID:22a43792c26c64c03b4d7b7297cad4ec"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

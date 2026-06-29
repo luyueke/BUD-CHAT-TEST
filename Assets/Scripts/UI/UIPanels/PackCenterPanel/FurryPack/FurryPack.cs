@@ -1,0 +1,220 @@
+using System;
+using System.Collections.Generic;
+using Game.Event;
+using Newtonsoft.Json;
+using UI.BaseWidgets;
+using UnityEngine;
+using UnityEngine.UI;
+
+
+public class FurryPack : PackBaseView
+{
+    [SerializeField] private Transform bg;
+    [SerializeField] private Text endTime;
+    [SerializeField] private CButton buyBtn;
+    [SerializeField] private CButton previewBtn;
+    [SerializeField] private PackCommonItem packItem;
+    [SerializeField] private GameObject rightArrow;
+    [SerializeField] private PackCommonItem packBigItem;
+    [SerializeField] private Text taskEndTime;
+    [SerializeField] protected GameObject buyNode;
+    [SerializeField] protected GameObject taskEndTips;
+    [SerializeField] public Transform taskContent;
+    [SerializeField] private Text priceText;
+    [SerializeField] private Text rewardTips1;
+    
+    private List<PackCommonItem> packItemNodeList = new List<PackCommonItem>();
+    private PaidPackageListItem _paidPackageListItem;
+    private TaskInfoData _taskInfoData;
+    
+    private string rewardIconName = "icon_reward";
+    private string configPath;
+    private string spriteatlasPath;
+    private void InitConfig(PaidPackageType paidPackageType)
+    {
+        //注意海外服需要手动配置该参数（商品id，跟运营拿，海外服需要，国服不需要）
+        ProductIdType = ProductIdType.product_budpremiumvaluepack;
+        LoadConfig(paidPackageType);
+    }
+
+    private void LoadConfig(PaidPackageType paidPackageType)
+    {
+        PaidPackageType = paidPackageType;
+        string packName = PaidPackageType.ToString();
+        string configPath = string.Format(PackCenterPanel.ViewBasePath + "{0}/{1}.json",packName, packName);
+        var textAsset = Loader.Load<TextAsset>(configPath, gameObject);
+        packViewConfig = JsonConvert.DeserializeObject<PackViewConfig>(textAsset.text);
+        TaskId = packViewConfig.taskId;//跟后端(谢梓峰)拿
+        spriteatlasPath = string.Format(PackCenterPanel.ViewBasePath + "{0}/{1}.spriteatlas",packName, packName);
+        if (!string.IsNullOrEmpty(packViewConfig.spriteatlasPath))
+        {
+            spriteatlasPath = packViewConfig.spriteatlasPath;
+        }
+    }
+
+    private void Start()
+    {
+        InitConfig(PaidPackageType.FurryPack);
+        InitBg();
+        InitClickListener();
+        CreateItems(packViewConfig.rewardDataList);
+        GetProductInfo();
+        RefreshTaskStatus();
+    }
+
+    public override void OnServerDataUpdate(PaidPackageListItem packageListItem)
+    {
+        this._paidPackageListItem = packageListItem;
+        buyNode.gameObject.SetActive(packageListItem.isPaid != 1);
+        taskEndTips.gameObject.SetActive(packageListItem.isPaid == 1);
+        endTime.gameObject.SetActive(packageListItem.isPaid != 1);
+        endTime.SetLocalText("距售卖时间结束还有: {0}",packageListItem.endDate);
+    }
+
+    
+    private void InitBg()
+    {
+        var itemObj = Loader.Load<GameObject>("Assets/Loadable/UI/UIPanel/CommonBgPanel/ActivityCenterBg.prefab")?.Instantiate(bg);
+        if (itemObj)
+        {
+            var item = itemObj.GetComponent<ActivityCenterBgItem>();
+            item?.InitCustomBgItem(packViewConfig.bgColor, spriteatlasPath,packViewConfig.bgSpriteList);
+            item?.gameObject.SetActive(true);
+        }
+    }
+
+
+    private void InitClickListener()
+    {
+        buyBtn.onClick.AddListener(OnBuyBtnClick);
+        previewBtn.onClick.AddListener(OnPreviewBtnClick);
+    }
+
+    protected override void OnTaskListUpdate(TaskListRsp taskListRsp)
+    {
+        taskContent.gameObject.SetActive(true);
+        List<TaskInfoData> taskInfoDatas = taskListRsp.list;
+        if (taskInfoDatas == null || taskInfoDatas.Count <= 0)
+        {
+            return;
+        }
+
+        TaskInfoData tsTaskInfoData = taskInfoDatas[0];
+        if (tsTaskInfoData == null)
+        {
+            return;
+        }
+
+        this._taskInfoData = tsTaskInfoData;
+
+        List<TaskItemData> eventList = tsTaskInfoData.eventList;
+        taskEndTime.SetLocalText("距任务结束还有: {0}" , _taskInfoData.endDate);
+        for (int i = 0; i < packItemNodeList.Count; i++)
+        {
+            packItemNodeList[i].SetData(TaskId, eventList[i], taskItemData => { RefreshTaskStatus(); }, () =>
+            {
+                if (_paidPackageListItem.isPaid != 1)
+                {
+                    string localProductName = LocalizationManager.Inst.GetLocalizedText(packViewConfig.productName);
+                    string tips = LocalizationManager.Inst.GetLocalizedText("购买{0}获取对应礼品哦",localProductName);
+                    TipPanel.ShowToast(tips);
+                }
+            });
+        }
+    }
+    
+    protected override void OnBuySuccess(string orderId)
+    {
+        ShowPackReward();
+        buyNode.gameObject.SetActive(false);
+        taskEndTips.gameObject.SetActive(true);
+        _paidPackageListItem.isPaid = 1;
+        ReddotManagerUtils.Inst.RefreshRedDot();
+    }
+    
+    protected void ShowPackReward()
+    {
+        Message.MessageHelper.Broadcast(Message.MessageName.AvaterDatabaseCheck); 
+        var panel = UIManager.Inst.OpenPanel<CommonRewardPanel>(PanelId.CommonRewardPanel);
+        panel.ShowRewards(new List<CommonRewardItemData>()
+        {
+            new CommonRewardItemData()
+            {
+                IconSp = XAssetLoaderMgr.Inst.LoadSpriteInAltas(spriteatlasPath, rewardIconName, gameObject),
+                RewardAmount = 1,
+                rewardName = packViewConfig.productName
+            }
+        });
+    }
+
+    private void CreateItems(List<RewardItem> rewardDataList)
+    {
+        // taskContent.gameObject.SetActive(false);
+        packItemNodeList.Clear();
+        foreach (Transform child in taskContent)
+        {
+            Destroy(child.gameObject);
+        }
+
+        for (var i = 0; i < rewardDataList.Count; i++)
+        {
+            if (string.IsNullOrEmpty(rewardDataList[i].rewardName2))
+            {
+                var taskItem = Instantiate(packBigItem, taskContent);
+                taskItem.SetAtlasPath(spriteatlasPath);
+                taskItem.OnInitCreate(rewardDataList[i], true);
+                packItemNodeList.Add(taskItem);
+            }
+            else
+            {
+                var taskItem = Instantiate(packItem, taskContent);
+                taskItem.SetAtlasPath(spriteatlasPath);
+                taskItem.OnInitCreate(rewardDataList[i], false);
+                packItemNodeList.Add(taskItem);
+            }
+            if (i != rewardDataList.Count -1)
+            {
+                Instantiate(rightArrow, taskContent);
+            }
+        }
+    }
+    
+    private void OnBuyBtnClick()
+    {
+        if (_paidPackageListItem == null)
+        {
+            return;
+        }
+
+        if (IAPDataManager.Inst.IsOfficialChannel())
+        {
+            ProductInfo productInfo = _paidPackageListItem.productInfo;
+            ConfirmPaymentPanel panel =
+                UIManager.Inst.OpenPanel<ConfirmPaymentPanel>(PanelId.ConfirmPaymentPanel, productInfo.price);
+            panel.SetCallback(paymentType => { Purchase(paymentType,productInfo,packViewConfig.productName); });
+            return;
+        }
+
+        Purchase(ConfirmPaymentPanel.PaymentType.Default,_paidPackageListItem.productInfo,packViewConfig.productName);
+    }
+
+    private void OnPreviewBtnClick()
+    {
+        EventRewardPanelData data = new EventRewardPanelData()
+        {
+            bgColor = packViewConfig.bgColor,
+            rewardItemBgColor = packViewConfig.rewardItemColor,
+            atlasPath = spriteatlasPath,
+            rewardList = packViewConfig.rewardIdList,
+            iconList = new List<string>()
+            {
+                "furry_bg1",
+                "furry_bg2",
+                "furry_bg3",
+                "furry_bg4"
+            },
+        };
+        UIManager.Inst.OpenPanel<EventCenterRewardPanel>(PanelId.EventCenterRewardPanel, data);
+    }
+    
+}

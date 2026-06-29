@@ -1,0 +1,22 @@
+{
+    "name": "Game.UGCAsset",
+    "rootNamespace": "",
+    "references": [
+        "GUID:7de8fcb2f41d448880b77c209e11b9e8",
+        "GUID:a46821e761fc3405993e3ca5be03ca0e",
+        "GUID:91724b6d4540fd642abec0b66ee7d58f",
+        "GUID:9545ef765a3346609e490bf95b45888e",
+        "GUID:6f5118a4e28ddbf4dafd0b38683f14ac",
+        "GUID:22a43792c26c64c03b4d7b7297cad4ec",
+        "GUID:5fe4d47030f36734bb6b936fe7479ff6"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

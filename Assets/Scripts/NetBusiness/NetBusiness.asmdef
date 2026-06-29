@@ -1,0 +1,21 @@
+{
+    "name": "NetBusiness",
+    "rootNamespace": "",
+    "references": [
+        "GUID:91724b6d4540fd642abec0b66ee7d58f",
+        "GUID:9545ef765a3346609e490bf95b45888e",
+        "GUID:7de8fcb2f41d448880b77c209e11b9e8",
+        "GUID:ff4bf6c59d1ac413a8f34ced5be76ecd",
+        "GUID:39ff56787e924f54f87e3afb8fe1850f",
+        "GUID:7d5ef2062f3704e1ab74aac0e4d5a1a7"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
