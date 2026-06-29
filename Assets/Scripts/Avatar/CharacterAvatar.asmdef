@@ -1,0 +1,27 @@
+{
+    "name": "CharacterAvatar",
+    "rootNamespace": "",
+    "references": [
+        "GUID:91724b6d4540fd642abec0b66ee7d58f",
+        "GUID:6f5118a4e28ddbf4dafd0b38683f14ac",
+        "GUID:7de8fcb2f41d448880b77c209e11b9e8",
+        "GUID:1b83ab4edc5e4a9c8b057a6c6dd54273",
+        "GUID:f6dc9ccf8d8f946e3b5993c1a51eaa31",
+        "GUID:5fe4d47030f36734bb6b936fe7479ff6",
+        "GUID:925ad6619f9ba40488c65292cebf906f",
+        "GUID:22a43792c26c64c03b4d7b7297cad4ec",
+        "GUID:fa3c03404a1b448aa8a3326e022e4ca1",
+        "GUID:9545ef765a3346609e490bf95b45888e",
+        "GUID:ea92fafd794f6c34fac6ba91b5c91c5b",
+        "GUID:02a2dadfb7d8da74c96e1acb47fa2da0"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
