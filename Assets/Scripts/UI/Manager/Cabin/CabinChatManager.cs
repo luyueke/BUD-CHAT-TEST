@@ -190,6 +190,28 @@ public class CabinChatManager : GlobalInstance<CabinChatManager>
 
 
     /// <summary>
+    /// 匹配角色标签（/boxchat/createBot/matchTags）
+    /// </summary>
+    /// <param name="botProfileJson">botProfile 序列化后的 JSON 字符串</param>
+    /// <param name="onSuccess">成功回调，返回标签列表</param>
+    /// <param name="onFail">失败回调</param>
+    public void CreateBotTags(string botProfileJson, Action<List<BotMatchTags>> onSuccess, Action<string> onFail = null)
+    {
+        var paramStr = JsonConvert.SerializeObject(new { botProfile = botProfileJson });
+        NetworkManager.Inst.SendHttpRequest(
+            HttpUrlDefine.createBotTags,
+            HttpMethod.POST,
+            paramStr,
+            (content) =>
+            {
+                var resp = JsonConvert.DeserializeObject<CreateBotTagsResponse>(content);
+                onSuccess?.Invoke(resp?.botMatchTags);
+            },
+            (error) => onFail?.Invoke(error)
+        );
+    }
+
+    /// <summary>
     /// 聊天内容tts（/box/textAudio)
     /// </summary>
     /// <param name="sessionId">会话ID</param>

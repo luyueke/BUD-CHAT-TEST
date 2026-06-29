@@ -996,6 +996,14 @@ namespace Game
                                 chatVoiceCom.SetData(streamData.botProfile);
                             });
                         }
+                        string botProfileJson = JsonConvert.SerializeObject(streamData.botProfile);
+                        CabinChatManager.Inst.CreateBotTags(botProfileJson,
+                            tags =>
+                            {
+                                if (streamData.botProfile != null && tags != null)
+                                    streamData.botProfile.botMatchTags = tags;
+                            },
+                            err => Debug.LogError("createBotTags failed: " + err));
                         Invoke("waitSetVerticalNormalizedPosition", 0.1f);
                     };
 

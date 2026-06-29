@@ -78,6 +78,11 @@ public class BotMatchTags
     public string reason;
 }
 
+public class CreateBotTagsResponse
+{
+    public List<BotMatchTags> botMatchTags;
+}
+
 
 
 public class CabinChatCreateBotProfileData
