@@ -1,0 +1,16 @@
+{
+    "name": "HotDllDownload",
+    "rootNamespace": "",
+    "references": [
+        "GUID:6f5118a4e28ddbf4dafd0b38683f14ac"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
