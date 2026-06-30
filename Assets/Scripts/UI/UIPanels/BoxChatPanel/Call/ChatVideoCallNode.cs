@@ -166,7 +166,10 @@ namespace Game
             _connectStartTime   = Time.time;
 
             if (txt_callTime != null)
+            {
+                txt_callTime.alignment = TextAnchor.MiddleLeft;
                 txt_callTime.text = "等待对方接受邀请";
+            }
 
             if (txt_shutdown != null)
                 txt_shutdown.text = "取消";
@@ -355,6 +358,7 @@ namespace Game
 
             int m = _callSeconds / 60;
             int s = _callSeconds % 60;
+            txt_callTime.alignment = TextAnchor.MiddleCenter;
             txt_callTime.text = $"{m:D2}:{s:D2}";
         }
 

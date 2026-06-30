@@ -31,8 +31,8 @@ namespace Game
             CreateItem("世界观", data.world);
             CreateItem("角色简介", data.one_line_note);
 
-            if (data.greeting_candidates != null && data.greeting_candidates.Count > 0)
-                CreateItem("开场白", string.Join("\n", data.greeting_candidates));
+            // if (data.greeting_candidates != null && data.greeting_candidates.Count > 0)
+            //     CreateItem("开场白", string.Join("\n", data.greeting_candidates));
 
             UICommonUtils.RefreshLayout(prefabParentGo.transform);
         }

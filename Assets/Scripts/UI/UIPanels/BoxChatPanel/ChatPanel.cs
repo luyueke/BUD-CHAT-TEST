@@ -164,6 +164,7 @@ namespace Game
 
             keyBoardTest.offsetAction = OnOffsetAction;
             keyBoardTest.inputAction = OnInputAction;
+            keyBoardTest.onKeyboardHidden = OnKeyboardHiddenBySystem;
 
             InputField.onValueChanged.AddListener((str) => { OnInputAction(InputField.text); });
 
@@ -236,18 +237,16 @@ namespace Game
                     waitAnim.SetWaitAnim();
                     ItemLs.Add(waitAnim);
                 }
-
-                // LayoutRebuilder.ForceRebuildLayoutImmediate(Content);
-                if (Content.sizeDelta.y > ScrollView.rect.height)
-                {
-                    // Content.DOLocalMoveY(Content.sizeDelta.y - ScrollView.rect.height, 0.2f);
-                }
             }
         }
 
         void OnSendBtn()
         {
-            if (_waitingForResponse) return;
+            if (_waitingForResponse)
+            {
+                Debug.Log("正在等待回复");
+                return;
+            }
 
             string inputText = InputField.text;
             inputText = RemoveEmoji(inputText);
@@ -330,6 +329,7 @@ namespace Game
 #if UNITY_EDITOR
             OnOffsetAction(0);
 #endif
+            // OnOffsetAction(key_h);
             if (keyBoardTest.keyboard == null)
             {
                 keyBoardTest.OpenKeyboard("");
@@ -339,8 +339,18 @@ namespace Game
 
         void CloseKeyboard()
         {
+            if (keyBoardTest.keyboard?.active == true)
+            {
+                OnOffsetAction(0);
+                keyBoardTest.CloseOpenKeyboard();
+                InputFieldBtn.gameObject.SetActive(true);
+            }
+        }
+
+        // 系统键盘被用户按缩回/Done/Back 收起时触发（keyboard 此时已被 KeyBoardTest 置 null）
+        void OnKeyboardHiddenBySystem()
+        {
             OnOffsetAction(0);
-            keyBoardTest.CloseOpenKeyboard();
             InputFieldBtn.gameObject.SetActive(true);
         }
 
@@ -437,18 +447,24 @@ namespace Game
 
         void OnOffsetAction(float h)
         {
-            key_h = h;
-            if (key_h != panel.anchoredPosition.y)
             {
-                panel.anchoredPosition = new Vector2(panel.anchoredPosition.x, key_h);
-                ScrollView.offsetMin = new Vector2(ScrollView.offsetMin.x, 200 + key_h + txt_h);
-                if (Content.sizeDelta.y > ScrollView.rect.height)
+                key_h = h;
+                if (key_h != panel.anchoredPosition.y)
                 {
-                    Content.DOLocalMoveY(Content.sizeDelta.y - ScrollView.rect.height, 0.2f);
+                    panel.anchoredPosition = new Vector2(panel.anchoredPosition.x, key_h);
+                    ScrollView.offsetMin = new Vector2(ScrollView.offsetMin.x, 200 + key_h + txt_h);
+                    if (Content.sizeDelta.y > ScrollView.rect.height)
+                    {
+                        Canvas.ForceUpdateCanvases();
+                        LayoutRebuilder.ForceRebuildLayoutImmediate(Content);
+                        ScrollView.GetComponent<ScrollRect>().verticalNormalizedPosition = 0;
+                        // var pos = Content.localPosition;
+                        // Content.localPosition = new(pos.x, Content.sizeDelta.y - ScrollView.rect.height, 0);
+                    }
                 }
-            }
 
-            RefreshScrollviewLayout();
+                RefreshScrollviewLayout();
+            }
         }
 
 
@@ -516,22 +532,19 @@ namespace Game
                 });
                 var tem = CreateChatItem();
                 tem.SetData((isUser, entry.content));
-                // tem.SetPortrait(_robotPortraitUrl, 0);
                 if (!isUser && chatType == 2)
                     tem.SetVoiceBotData(_characterId, entry.msgId, entry.content, entry.audioUrl, entry.audioDuration);
                 ItemLs.Add(tem);
             }
 
-            LayoutRebuilder.ForceRebuildLayoutImmediate(Content);
-            if (Content.sizeDelta.y > ScrollView.rect.height)
-            {
-                Content.DOLocalMoveY(Content.sizeDelta.y - ScrollView.rect.height, 0.2f);
-            }
+
+            RefreshScrollviewLayout();
+            ScrollView.GetComponent<ScrollRect>().verticalNormalizedPosition = 0;
 
             // isEnd == 0：AI 回复未结束，禁用发送，等待外部重连流
             bool isWaiting = historyData.isEnd == 0;
+            isWaiting = false;
             _waitingForResponse = isWaiting;
-            // NoSend.SetActive(isWaiting);
         }
 
 
@@ -1126,6 +1139,8 @@ namespace Game
 
         public void RefreshScrollviewLayout()
         {
+            Canvas.ForceUpdateCanvases();
+            LayoutRebuilder.ForceRebuildLayoutImmediate(Content);
             UICommonUtils.RefreshLayout(panel.transform);
             ScrollRect scrollRect = ScrollView.GetComponent<ScrollRect>();
             UICommonUtils.RefreshLayout(scrollRect.content);
@@ -1301,9 +1316,6 @@ namespace Game
                 var height = panel.rect.height;
                 ScrollView.offsetMin = new Vector2(ScrollView.offsetMin.x, height);
 
-                // LayoutRebuilder.ForceRebuildLayoutImmediate(Content);
-                // if (Content.sizeDelta.y > ScrollView.rect.height)
-                // Content.DOLocalMoveY(Content.sizeDelta.y - ScrollView.rect.height, 0.2f);
                 return (true, aiContent);
             }
             catch
@@ -1371,10 +1383,7 @@ namespace Game
                 OnBotStreamReceive
             );
 
-            // if (Content.sizeDelta.y > ScrollView.rect.height)
-            // {
-            //     Content.DOLocalMoveY(Content.sizeDelta.y - ScrollView.rect.height, 0.2f);
-            // }
+
 
             Invoke("waitSetVerticalNormalizedPosition", 0.1f);
             RefreshScrollviewLayout();
@@ -1425,11 +1434,6 @@ namespace Game
                 // 后续 chunk：追加到同一气泡
                 _currentStreamItem.AppendText(chunk);
             }
-            // _currentStreamItem.SetPortrait(_robotPortraitUrl, 0);
-
-            // LayoutRebuilder.ForceRebuildLayoutImmediate(Content);
-            // if (Content.sizeDelta.y > ScrollView.rect.height)
-            // Content.DOLocalMoveY(Content.sizeDelta.y - ScrollView.rect.height, 0.2f);
         }
 
 

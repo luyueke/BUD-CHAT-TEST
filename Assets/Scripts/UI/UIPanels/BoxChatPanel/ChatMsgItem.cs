@@ -1,5 +1,4 @@
 ﻿using Com.TheFallenGames.OSA.Util.IO;
-using Sirenix.OdinInspector;
 using System;
 using UnityEngine;
 using UnityEngine.UI;
@@ -73,21 +72,6 @@ namespace Game
             return dt.ToString("yyyy/MM/dd");
         }
 
-        [Button("测试聊天历史记录")]
-        void testHistory()
-        {
-            // _chatMainPanel.chatPanel.gameObject.SetActive(true);
-            // var mockData = new CabinChatTextHistoryData
-            // {
-            //     isEnd = 1,
-            //     history = new CabinChatTextHistory
-            //     {
-            //         role = "assistant",
-            //         content = "你好！我是你的专属助手，有什么我可以帮你的吗？",
-            //         timestamp = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds()
-            //     }
-            // };
-            // OnHistoryReceived(mockData);
-        }
+       
     }
 }

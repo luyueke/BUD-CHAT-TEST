@@ -32,6 +32,7 @@ namespace Game
         public RectTransform Selection_InputBgRect;
 
         public Button Selection_InputFieldBtn;
+        public ImagePointTrigger ImagePointTrigger;
 
         public KeyBoardTest Selection_keyBoardTest;
         #endregion
@@ -51,12 +52,14 @@ namespace Game
         void Awake()
         {
             // Selection_InputField.placeholder.GetComponent<Text>().text = "Talk to " + "";
+            ImagePointTrigger.OnPointDown = () => { Selection_CloseKeyboard(); };
 
             Selection_InputField.onEndEdit.AddListener(Selection_OnInput);
             Selection_InputFieldBtn.onClick.AddListener(Selection_OnInputBtn);
             Selection_InputFieldBtn.gameObject.SetActive(true);
             Selection_keyBoardTest.offsetAction = Selection_OnOffsetAction;
             Selection_keyBoardTest.inputAction = Selection_OnInputAction;
+            Selection_keyBoardTest.onKeyboardHidden = Selection_OnKeyboardHiddenBySystem;
             Selection_InputField.onValueChanged.AddListener((str) => { Selection_OnInputAction(Selection_InputField.text); });
             Selection_SendBtn.onClick.AddListener(OnSendBtnClick);
         }
@@ -107,41 +110,61 @@ namespace Game
 #if UNITY_EDITOR
             Selection_OnOffsetAction(0);
 #endif
+            Debug.LogError("Selection_OnInputBtn");
+            Debug.LogError(Selection_keyBoardTest.keyboard);
+            // Selection_OnOffsetAction(key_h);
             if (Selection_keyBoardTest.keyboard == null)
             {
+                Debug.LogError("打开键盘");
                 Selection_keyBoardTest.OpenKeyboard("");
                 Selection_InputFieldBtn.gameObject.SetActive(false);
+            }
+            else
+            {
+                Debug.LogError(Selection_keyBoardTest.keyboard.active);
+                // Selection_keyBoardTest.CloseOpenKeyboard();
+                // Selection_keyBoardTest.OpenKeyboard("");
             }
         }
 
         void Selection_CloseKeyboard()
         {
+            if (Selection_keyBoardTest.keyboard?.active == true)
+            {
+                Debug.LogError("关闭键盘");
+                Selection_OnOffsetAction(0);
+                Selection_keyBoardTest.CloseOpenKeyboard();
+                Selection_InputFieldBtn.gameObject.SetActive(true);
+
+
+                Selection_TxtScroll.gameObject.SetActive(false);
+                Selection_InputBgRect.sizeDelta = new(721, 134);
+                Selection_InputFieldRect.transform.SetParent(Selection_InputBgRect.transform);
+
+                Selection_InputFieldRect.anchorMin = new Vector2(0.5f, 0);
+                Selection_InputFieldRect.anchorMax = new Vector2(0.5f, 1);
+                Selection_InputFieldRect.pivot = new Vector2(1, 0);
+
+                Selection_InputFieldRect.sizeDelta = new Vector2(715f, Selection_InputFieldRect.sizeDelta.y);
+                Selection_InputFieldRect.anchoredPosition = new Vector2(344f, Selection_InputFieldRect.anchoredPosition.y);
+                Selection_InputFieldRect.offsetMin = new Vector2(Selection_InputFieldRect.offsetMin.x, 22.3f);
+                Selection_InputFieldRect.offsetMax = new Vector2(Selection_InputFieldRect.offsetMax.x, -8.9f);
+
+                //
+                // Selection_InputFieldRect.anchoredPosition = new Vector2(714, 30);
+
+                // Selection_InputFieldBtn.transform.SetAsLastSibling();
+                // Selection_SendBtn.transform.SetAsLastSibling();
+
+                Selection_InputBgRect.sizeDelta = new Vector2(Selection_InputBgRect.sizeDelta.x, 134 + Math.Max(0, 0 - 72));
+                ScrollView.offsetMin = new Vector2(ScrollView.offsetMin.x, 134 + key_h + 0);
+            }
+        }
+
+        void Selection_OnKeyboardHiddenBySystem()
+        {
             Selection_OnOffsetAction(0);
-            Selection_keyBoardTest.CloseOpenKeyboard();
             Selection_InputFieldBtn.gameObject.SetActive(true);
-
-
-            Selection_TxtScroll.gameObject.SetActive(false);
-            Selection_InputBgRect.sizeDelta = new(721, 134);
-            Selection_InputFieldRect.transform.SetParent(Selection_InputBgRect.transform);
-
-            Selection_InputFieldRect.anchorMin = new Vector2(0.5f, 0);
-            Selection_InputFieldRect.anchorMax = new Vector2(0.5f, 1);
-            Selection_InputFieldRect.pivot = new Vector2(1, 0);
-
-            Selection_InputFieldRect.sizeDelta = new Vector2(715f, Selection_InputFieldRect.sizeDelta.y);
-            Selection_InputFieldRect.anchoredPosition = new Vector2(344f, Selection_InputFieldRect.anchoredPosition.y);
-            Selection_InputFieldRect.offsetMin = new Vector2(Selection_InputFieldRect.offsetMin.x, 22.3f);
-            Selection_InputFieldRect.offsetMax = new Vector2(Selection_InputFieldRect.offsetMax.x, -8.9f);
-
-            //
-            // Selection_InputFieldRect.anchoredPosition = new Vector2(714, 30);
-
-            // Selection_InputFieldBtn.transform.SetAsLastSibling();
-            // Selection_SendBtn.transform.SetAsLastSibling();
-
-            Selection_InputBgRect.sizeDelta = new Vector2(Selection_InputBgRect.sizeDelta.x, 134 + Math.Max(0, 0 - 72));
-            ScrollView.offsetMin = new Vector2(ScrollView.offsetMin.x, 134 + key_h + 0);
         }
 
         float Selection_barY;
@@ -157,7 +180,7 @@ namespace Game
                 // 同步后手动推进光标，否则 SetTextWithoutNotify 不会移动 m_CaretPosition。
                 bool needsSync = Selection_InputField.text != str;
                 int prevCaret = Selection_InputField.caretPosition;
-                int prevLen   = Selection_InputField.text.Length;
+                int prevLen = Selection_InputField.text.Length;
 
                 Selection_InputField.SetTextWithoutNotify(str);
 
@@ -238,6 +261,11 @@ namespace Game
             }
             chatPanel.key_h = key_h;
             chatPanel.RefreshScrollviewLayout();
+
+            if (key_h == 0)
+            {
+                Selection_keyBoardTest.CloseOpenKeyboard();
+            }
         }
 
         #endregion

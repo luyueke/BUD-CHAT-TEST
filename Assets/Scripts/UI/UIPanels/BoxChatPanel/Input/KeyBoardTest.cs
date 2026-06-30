@@ -19,6 +19,9 @@ namespace Game
         [HideInInspector] public Action<string> inputAction;
 
         [HideInInspector] public Action<float> offsetAction;
+
+        // 键盘被系统收起（按缩回/Done/Back）时触发
+        [HideInInspector] public Action onKeyboardHidden;
 #if PACKAGE_TYPE_US
     static readonly string androidClassPath = "com.pointone.buddyglobal.feature.unity.view.UnityPlayerActivity";
 #else
@@ -100,10 +103,24 @@ namespace Game
 
         void Update()
         {
-            if (InputField != null && InputField.touchScreenKeyboard != null && keyboard == null) 
+            // 仅在键盘真正可见时才从 InputField 同步引用，避免已关闭的实例被重新赋入
+            if (InputField != null && InputField.touchScreenKeyboard != null && keyboard == null
+                && InputField.touchScreenKeyboard.status == TouchScreenKeyboard.Status.Visible)
             {
                 keyboard = InputField.touchScreenKeyboard;
             }
+
+            if (keyboard != null)
+            {
+                // 用户按系统收起/Done/Back 等导致键盘关闭时，主动清空引用并通知上层
+                if (keyboard.status != TouchScreenKeyboard.Status.Visible)
+                {
+                    keyboard = null;
+                    onKeyboardHidden?.Invoke();
+                    // h 会在下方 else 分支里重置为 0
+                }
+            }
+
             if (keyboard != null)
             {
                 if (Application.platform == RuntimePlatform.Android)
@@ -121,7 +138,7 @@ namespace Game
                     // mUnityPlayer may not exist in custom Activity; GetKeyboardHeight has a fallback
                 }
 
-                var _h = GetKeyboardHeight(true, 2436); //* 2436 / Screen.height;
+                var _h = GetKeyboardHeight(true, 2436);
                 if (h != _h)
                 {
                     h = _h;
