@@ -165,6 +165,7 @@ public class ScreenOrientationHelper : MonoBehaviour
         {
             var cs = mainCanvasGO.GetComponent<CanvasScaler>();
             if (cs) cs.referenceResolution = isPortrait ? new Vector2(1125, 2436) : new Vector2(2436, 1125);
+            if (cs) cs.matchWidthOrHeight  = isPortrait ? 1f : 0f;
         }
         img.sprite = Loader.Load<Sprite>(targetImgPath, gameObject);
         Debug.Log($"[SOH] NEW target image set Screen={Screen.width}x{Screen.height}");

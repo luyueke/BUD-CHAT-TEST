@@ -160,11 +160,9 @@ namespace Game
                     offsetAction?.Invoke(h);
                 }
 
-                if (txt != "")
-                {
-                    txt = "";
-                    inputAction?.Invoke(txt);
-                }
+                // 仅重置内部追踪变量，不触发 inputAction
+                // 触发 inputAction("") 会导致 OnInputAction 调用 InputField.SetTextWithoutNotify("") 清空内容
+                txt = "";
             }
         }
 

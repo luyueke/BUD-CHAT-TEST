@@ -128,6 +128,7 @@ namespace Game
             var item = Instantiate(Item, Content).GetComponent<ChatPanelItem>();
             item.chatType = chatType;
             item.SetPortrait(_robotPortraitUrl, 0);
+            item.onRefreshLayout = RefreshScrollviewLayout;
             return item;
         }
 
@@ -316,6 +317,8 @@ namespace Game
                     OnBotStreamReceive
                 );
             }
+            CloseKeyboard();
+            RefreshScrollviewLayout();
         }
 
 
@@ -422,7 +425,7 @@ namespace Game
                     // InputFieldRect.offsetMax = new Vector2(InputFieldRect.offsetMax.x, -8.9f);
 
                     InputBgRect.sizeDelta = new Vector2(InputBgRect.sizeDelta.x, 134 + Math.Max(0, txt_h - 72));
-                    ScrollView.offsetMin = new Vector2(ScrollView.offsetMin.x, 134 + key_h + txt_h);
+                    // ScrollView.offsetMin = new Vector2(ScrollView.offsetMin.x, 134 + key_h + txt_h);
 
 
                     // InputFieldRect.anchoredPosition = new Vector2(334, 124);
@@ -434,6 +437,7 @@ namespace Game
                 }
             }
             NoSend.SetActive(string.IsNullOrEmpty(RemoveEmoji(str)));
+            RefreshScrollviewLayout();
         }
 
         public string RemoveEmoji(string text)
@@ -531,7 +535,7 @@ namespace Game
                     msgId = entry.msgId,
                 });
                 var tem = CreateChatItem();
-                tem.SetData((isUser, entry.content));
+                tem.SetData((isUser, entry.content), true);
                 if (!isUser && chatType == 2)
                     tem.SetVoiceBotData(_characterId, entry.msgId, entry.content, entry.audioUrl, entry.audioDuration);
                 ItemLs.Add(tem);
@@ -1383,8 +1387,7 @@ namespace Game
                 OnBotStreamReceive
             );
 
-
-
+            CloseKeyboard();
             Invoke("waitSetVerticalNormalizedPosition", 0.1f);
             RefreshScrollviewLayout();
         }

@@ -60,6 +60,11 @@ namespace Game
 
         BudTimer budTimer;
 
+        // ─── 吐字动画 ────────────────────────────────────────────────────────
+        private Coroutine _typewriterCoroutine;
+        private int _displayedLength;
+        public Action onRefreshLayout;
+
         // ─── 语音播放状态 ─────────────────────────────────────────────────────
         private static ChatPanelItem _currentPlayingItem; // 全局唯一播放实例
 
@@ -80,6 +85,7 @@ namespace Game
         protected override void OnDisable()
         {
             TimerManager.Inst.Stop(budTimer);
+            StopTypewriter();
             StopVoice();
             base.OnDisable();
         }
@@ -87,8 +93,52 @@ namespace Game
         protected override void OnDestroy()
         {
             TimerManager.Inst.Stop(budTimer);
+            StopTypewriter();
             StopVoice();
             base.OnDestroy();
+        }
+
+        private void StopTypewriter()
+        {
+            if (_typewriterCoroutine != null)
+            {
+                StopCoroutine(_typewriterCoroutine);
+                _typewriterCoroutine = null;
+            }
+        }
+
+        private void RefreshLayout()
+        {
+            Com.TextSize.SetLayoutVertical();
+            Com.BgRect.GetComponent<LayoutElement>().preferredWidth = Math.Min(Com.Text.preferredWidth + 120, 900);
+            if (Com.TextRect.sizeDelta.y > 153)
+            {
+                float offset = Com.TextRect.sizeDelta.y - 153;
+                Com.BgRect.sizeDelta = new Vector2(Com.BgRect.sizeDelta.x, 250 + offset);
+                ItemRect.sizeDelta = new Vector2(ItemRect.sizeDelta.x, 290 + offset);
+            }
+            else
+            {
+                Com.BgRect.sizeDelta = new Vector2(Com.BgRect.sizeDelta.x, 250);
+                ItemRect.sizeDelta = new Vector2(ItemRect.sizeDelta.x, 290);
+            }
+            onRefreshLayout?.Invoke();
+        }
+
+        // 逐字显示；streaming 期间 str 持续增长，协程追上即可
+        // lag > 8 时加速追赶，保证不拖慢流式体验
+        private IEnumerator TypewriterCoroutine()
+        {
+            while (_displayedLength < str.Length)
+            {
+                int lag = str.Length - _displayedLength;
+                int step = lag > 8 ? lag / 2 : 1;
+                _displayedLength = Math.Min(_displayedLength + step, str.Length);
+                Com.Text.text = str[.._displayedLength];
+                RefreshLayout();
+                yield return null;
+            }
+            _typewriterCoroutine = null;
         }
 
         public void BeginProducing()
@@ -119,7 +169,7 @@ namespace Game
             BeginProducing();
         }
 
-        public void SetData((bool, string) dt)
+        public void SetData((bool, string) dt, bool forceNoWriter = false)
         {
             TimerManager.Inst.Stop(budTimer);
             RobotItem.BgRect.gameObject.SetActive(false);
@@ -156,42 +206,27 @@ namespace Game
                 RobotItem.voiceNode.SetActive(false);
             }
 
-            Com.Text.text = str;
-            Com.TextSize.SetLayoutVertical();
-            Com.BgRect.GetComponent<LayoutElement>().preferredWidth = Math.Min(Math.Min(900, Com.Text.preferredWidth) + 120,900);
-
-
-            if (Com.TextRect.sizeDelta.y > 153)
+            // streaming 结束后 SetData 会带相同文本，跳过重复动画
+            bool alreadyDone = str == dt.Item2 && _displayedLength >= str.Length;
+            StopTypewriter();
+            if (alreadyDone || string.IsNullOrEmpty(str) || forceNoWriter)
             {
-                var offset = Com.TextRect.sizeDelta.y - 153;
-                Com.BgRect.sizeDelta = new Vector2(Com.BgRect.sizeDelta.x, 250 + offset);
-                ItemRect.sizeDelta = new Vector2(ItemRect.sizeDelta.x, 290 + offset);
+                _displayedLength = str.Length;
+                Com.Text.text = str;
+                RefreshLayout();
             }
             else
             {
-                Com.BgRect.sizeDelta = new Vector2(Com.BgRect.sizeDelta.x, 250);
-                ItemRect.sizeDelta = new Vector2(ItemRect.sizeDelta.x, 290);
+                _displayedLength = 0;
+                Com.Text.text = "";
+                _typewriterCoroutine = StartCoroutine(TypewriterCoroutine());
             }
         }
 
         public void AppendText(string chunk)
         {
             str += chunk;
-            Com.Text.text = str;
-            Com.TextSize.SetLayoutVertical();
-
-            Com.BgRect.GetComponent<LayoutElement>().preferredWidth = Math.Min(Math.Min(900, Com.Text.preferredWidth) + 120,900);
-            if (Com.TextRect.sizeDelta.y > 153)
-            {
-                var offset = Com.TextRect.sizeDelta.y - 153;
-                Com.BgRect.sizeDelta = new Vector2(Com.BgRect.sizeDelta.x, 250 + offset);
-                ItemRect.sizeDelta = new Vector2(ItemRect.sizeDelta.x, 290 + offset);
-            }
-            else
-            {
-                Com.BgRect.sizeDelta = new Vector2(Com.BgRect.sizeDelta.x, 250);
-                ItemRect.sizeDelta = new Vector2(ItemRect.sizeDelta.x, 290);
-            }
+            _typewriterCoroutine ??= StartCoroutine(TypewriterCoroutine());
         }
 
         public void SetWaitAnim()
@@ -263,12 +298,15 @@ namespace Game
             }
 
             if (string.IsNullOrEmpty(audioUrl))
-                FetchTextAudio();
+            {
+                // FetchTextAudio();
+                VoiceSetPlay();
+            }
             else
                 VoiceSetPlay();
         }
 
-        private void FetchTextAudio()
+        private void FetchTextAudio(Action<bool> ac = null)
         {
             VoiceSetLoading();
             CabinChatManager.Inst.GetBoxTextAudio(
@@ -285,53 +323,56 @@ namespace Game
                             RobotItem.voiceNode_voiceDuration.text = $"{secs}''";
                         }
                         VoiceSetPlay();
+                        ac?.Invoke(true);
                     }
                     else
                     {
                         VoiceSetError();
+                        ac?.Invoke(false);
                     }
                 },
                 (_) =>
                 {
                     if (this == null) return;
                     VoiceSetError();
+                    ac?.Invoke(false);
                 });
         }
 
         private void VoiceSetPlay()
         {
             var com = RobotItem;
-            if (com.voiceNode_playGo != null)   com.voiceNode_playGo.SetActive(true);
+            if (com.voiceNode_playGo != null) com.voiceNode_playGo.SetActive(true);
             if (com.voiceNode_loadingGo != null) com.voiceNode_loadingGo.SetActive(false);
             if (com.voiceNode_playingGo != null) com.voiceNode_playingGo.SetActive(false);
-            if (com.voiceNode_retryGo != null)   com.voiceNode_retryGo.SetActive(false);
+            if (com.voiceNode_retryGo != null) com.voiceNode_retryGo.SetActive(false);
         }
 
         private void VoiceSetLoading()
         {
             var com = RobotItem;
-            if (com.voiceNode_playGo != null)   com.voiceNode_playGo.SetActive(false);
+            if (com.voiceNode_playGo != null) com.voiceNode_playGo.SetActive(false);
             if (com.voiceNode_loadingGo != null) com.voiceNode_loadingGo.SetActive(true);
             if (com.voiceNode_playingGo != null) com.voiceNode_playingGo.SetActive(false);
-            if (com.voiceNode_retryGo != null)   com.voiceNode_retryGo.SetActive(false);
+            if (com.voiceNode_retryGo != null) com.voiceNode_retryGo.SetActive(false);
         }
 
         private void VoiceSetPlaying()
         {
             var com = RobotItem;
-            if (com.voiceNode_playGo != null)   com.voiceNode_playGo.SetActive(false);
+            if (com.voiceNode_playGo != null) com.voiceNode_playGo.SetActive(false);
             if (com.voiceNode_loadingGo != null) com.voiceNode_loadingGo.SetActive(false);
             if (com.voiceNode_playingGo != null) com.voiceNode_playingGo.SetActive(true);
-            if (com.voiceNode_retryGo != null)   com.voiceNode_retryGo.SetActive(false);
+            if (com.voiceNode_retryGo != null) com.voiceNode_retryGo.SetActive(false);
         }
 
         private void VoiceSetError()
         {
             var com = RobotItem;
-            if (com.voiceNode_playGo != null)   com.voiceNode_playGo.SetActive(false);
+            if (com.voiceNode_playGo != null) com.voiceNode_playGo.SetActive(false);
             if (com.voiceNode_loadingGo != null) com.voiceNode_loadingGo.SetActive(false);
             if (com.voiceNode_playingGo != null) com.voiceNode_playingGo.SetActive(false);
-            if (com.voiceNode_retryGo != null)   com.voiceNode_retryGo.SetActive(true);
+            if (com.voiceNode_retryGo != null) com.voiceNode_retryGo.SetActive(true);
         }
 
         private void OnVoiceBtnClick()
@@ -355,7 +396,13 @@ namespace Game
             if (string.IsNullOrEmpty(_voiceAudioUrl))
             {
                 // 无 URL → 重新请求 TTS
-                FetchTextAudio();
+                FetchTextAudio((isSucc) =>
+                {
+                    if (isSucc)
+                    {
+                        _voiceCoroutine = StartCoroutine(PlayVoiceCoroutine());
+                    }
+                });
             }
             else
             {

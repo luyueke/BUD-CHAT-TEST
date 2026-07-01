@@ -230,8 +230,8 @@ namespace Game
 
                     Selection_InputFieldRect.sizeDelta = new Vector2(715f, Selection_InputFieldRect.sizeDelta.y);
                     Selection_InputFieldRect.anchoredPosition = new Vector2(344f, Selection_InputFieldRect.anchoredPosition.y);
-                    Selection_InputFieldRect.offsetMin = new Vector2(Selection_InputFieldRect.offsetMin.x, 22.3f);
-                    Selection_InputFieldRect.offsetMax = new Vector2(Selection_InputFieldRect.offsetMax.x, -8.9f);
+                    // Selection_InputFieldRect.offsetMin = new Vector2(Selection_InputFieldRect.offsetMin.x, 22.3f);
+                    // Selection_InputFieldRect.offsetMax = new Vector2(Selection_InputFieldRect.offsetMax.x, -8.9f);
 
                     //
                     // Selection_InputFieldRect.anchoredPosition = new Vector2(714, 30);
@@ -245,6 +245,7 @@ namespace Game
 
                 UpdateSendState();
             }
+            chatPanel.RefreshScrollviewLayout();
         }
 
         void Selection_OnOffsetAction(float h)
@@ -256,7 +257,10 @@ namespace Game
                 ScrollView.offsetMin = new Vector2(ScrollView.offsetMin.x, 200 + key_h + txt_h);
                 if (Content.sizeDelta.y > ScrollView.rect.height)
                 {
-                    Content.DOLocalMoveY(Content.sizeDelta.y - ScrollView.rect.height, 0.2f);
+                    Canvas.ForceUpdateCanvases();
+                    LayoutRebuilder.ForceRebuildLayoutImmediate(Content);
+                    ScrollView.GetComponent<ScrollRect>().verticalNormalizedPosition = 0;
+                    // Content.DOLocalMoveY(Content.sizeDelta.y - ScrollView.rect.height, 0.2f);
                 }
             }
             chatPanel.key_h = key_h;
