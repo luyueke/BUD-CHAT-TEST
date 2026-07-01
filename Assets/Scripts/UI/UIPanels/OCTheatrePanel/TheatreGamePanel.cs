@@ -55,6 +55,8 @@ public class TheatreGamePanel : BasePanel<TheatreGamePanel>{
     [Header("角色")]
     [SerializeField] private Transform characterRoot;
     [SerializeField] private Camera avatarCamera;
+    [SerializeField] private float rotateSensitivity = 0.3f;
+    [SerializeField] private float rotYLimit = 180f;
     [SerializeField] private GameObject characterEmoteView;
     [SerializeField] private GameObject characterEmoteWindow;
     [SerializeField] private Button shrinkBtn;
@@ -85,6 +87,13 @@ public class TheatreGamePanel : BasePanel<TheatreGamePanel>{
     private Vector3 _defaultCameraLocalPos;
     private OCTDetailInfoRuntime _runtimeInfo;
     private bool isShrunk = false;
+
+    // 触控旋转
+    private float _userRotY;
+    private Vector3 _baseCharacterRotation;
+    private int _prevTouchCount;
+    private bool _isDragging;
+    private bool _preventNextClick;
 
     //剧本数据
     private TheatreEnterType enterType = TheatreEnterType.None;
@@ -120,7 +129,11 @@ public class TheatreGamePanel : BasePanel<TheatreGamePanel>{
         _lineupChangedHandler = () => StartCoroutine(RefreshActorLineupAsync());
         MessageHelper.AddListener(MessageName.OnTheatreActorLineupChanged, _lineupChangedHandler);
         if (avatarCamera != null)
+        {
+            // 直接使用 prefab 的相机 localPosition 作为基准（与编辑器 TheatreEditorEmoteShowcase 保持一致）。
+            // 镜头基准/偏移的计算统一走 TheatreEmoteCameraLayout。
             _defaultCameraLocalPos = avatarCamera.transform.localPosition;
+        }
         globalBtn.onClick.AddListener(OnGlobalBtnClick);
         settingBtn.onClick.AddListener(OnSettingBtnClick);
         avatarSettingBtn.onClick.AddListener(OnAvatarSettingBtnClick);
@@ -220,7 +233,7 @@ public class TheatreGamePanel : BasePanel<TheatreGamePanel>{
         {
             LoadEvent.ReportTask(187, 1);  //试玩剧场
         }
-        if(enterType == TheatreEnterType.Scene)
+        if(enterType == TheatreEnterType.Scene || enterType == TheatreEnterType.Room)
         {
             LoadEvent.ReportTask(188, 1);  //场景游玩剧场
         }
@@ -424,6 +437,7 @@ public class TheatreGamePanel : BasePanel<TheatreGamePanel>{
 
     private void OnGlobalBtnClick()
     {
+        if (_preventNextClick) { _preventNextClick = false; return; }
         if(isOptioning){
             return;
         }
@@ -512,6 +526,38 @@ public class TheatreGamePanel : BasePanel<TheatreGamePanel>{
     }
 
     private Tweener shrinkTween;
+    protected override void Update()
+    {
+        if (characterRoot == null || !characterEmoteView.activeSelf) return;
+        int count = Input.touchCount;
+        if (count == 1)
+        {
+            var touch = Input.GetTouch(0);
+            if (touch.phase == TouchPhase.Began)
+            {
+                _isDragging = false;
+                _preventNextClick = false;
+            }
+            else if (touch.phase == TouchPhase.Moved && _prevTouchCount == 1)
+            {
+                _isDragging = true;
+                _preventNextClick = true; // 在 Ended 前一帧设好，确保 onClick 触发时已生效
+                _userRotY = Mathf.Clamp(
+                    _userRotY - touch.deltaPosition.x * rotateSensitivity,
+                    -rotYLimit, rotYLimit);
+                characterRoot.localEulerAngles = new Vector3(
+                    _baseCharacterRotation.x,
+                    _baseCharacterRotation.y + _userRotY,
+                    _baseCharacterRotation.z);
+            }
+            else if ((touch.phase == TouchPhase.Ended || touch.phase == TouchPhase.Canceled) && !_isDragging)
+            {
+                _preventNextClick = false; // 纯点击（无拖动）不阻拦
+            }
+        }
+        _prevTouchCount = count;
+    }
+
     private void OnShrinkBtnClick()
     {
         isShrunk = !isShrunk;
@@ -620,15 +666,36 @@ public class TheatreGamePanel : BasePanel<TheatreGamePanel>{
         currentSection = section;
         isOptioning = false;
         characterEmoteView.SetActive(false);
+        controller?.HideCharacters();
         avatarCamera?.transform.DOLocalMove(_defaultCameraLocalPos, 0.5f);
         if(section.dialogues.Count > 0){
             playBoard.gameObject.SetActive(true);
             bool isSectionNarrator = string.IsNullOrEmpty(section.avatarID) || section.avatarID == "1";
-            playBoard.SetAvatarVisible(!isSectionNarrator);
-            if (!isSectionNarrator)
+            bool showAvatar = !isSectionNarrator && section.isShowAvatar;
+            playBoard.SetAvatarVisible(showAvatar);
+            if (showAvatar)
             {
                 var (avatarName, avatarUrl) = GetAvatarDisplayInfo(section.avatarID, section.avatarType);
                 playBoard.SetAvatar(avatarName, avatarUrl, 0);
+            }
+            bool hasAnyEmote = section.emote != null && !string.IsNullOrEmpty(section.emote.emoteID);
+            if (showAvatar && !hasAnyEmote)
+            {
+                int idleClothesIndex = _runtimeInfo?.allAvatars?.Find(a => a.playerId == section.avatarID)?.clothesIndex ?? 0;
+                if (controller != null && controller.TryShowIdleAvatar(section.avatarID, idleClothesIndex))
+                {
+                    characterEmoteView.SetActive(true);
+                    isShrunk = false;
+                    if (shrinkTween != null) { shrinkTween.Kill(); shrinkTween = null; }
+                    characterEmoteWindow.transform.localScale = Vector3.one;
+                    if (characterRoot != null)
+                    {
+                        characterRoot.DOKill();
+                        characterRoot.localEulerAngles = Vector3.zero;
+                    }
+                    _baseCharacterRotation = Vector3.zero;
+                    _userRotY = 0f;
+                }
             }
             playBoard.PlayEnterAnimation();
             currentDialogue = section.dialogues[0];
@@ -684,6 +751,11 @@ public class TheatreGamePanel : BasePanel<TheatreGamePanel>{
     }
 
     private void OnEmoteTrigger(OCTheatreGamePack<OCTheatreEmote> pack){
+        if (currentSection != null && !currentSection.isShowAvatar)
+        {
+            controller?.HideCharacters();
+            return;
+        }
         characterEmoteView.SetActive(true);
         isShrunk = false;
         if(shrinkTween != null){
@@ -700,23 +772,25 @@ public class TheatreGamePanel : BasePanel<TheatreGamePanel>{
 
             if (avatarCamera != null)
             {
+                float pgcConfigX = 0f;
                 if (isPgc)
                 {
                     var uiConfig = DataTables.GetEmoUIConfig(emote.emoteID);
-                    float targetX = (uiConfig != null ? uiConfig.cameraPos.x : 0f) + emote.customPosition.x;
-                    var targetPos = new Vector3(
-                        targetX,
-                        _defaultCameraLocalPos.y + emote.customPosition.y,
-                        _defaultCameraLocalPos.z + emote.scale);
+                    if (uiConfig != null) pgcConfigX = uiConfig.cameraPos.x;
+                }
+
+                Vector3 targetPos = TheatreEmoteCameraLayout.GetCameraLocalPosition(
+                    _defaultCameraLocalPos, isPgc, isDouble, pgcConfigX,
+                    new Vector2(emote.customPosition.x, emote.customPosition.y), emote.scale);
+
+                if (isPgc)
+                {
                     avatarCamera.transform.DOLocalMove(targetPos, 0.5f);
                 }
                 else
                 {
                     avatarCamera.transform.DOKill();
-                    avatarCamera.transform.localPosition = new Vector3(
-                        (isDouble ? -25f : 0f) + emote.customPosition.x,
-                        _defaultCameraLocalPos.y + emote.customPosition.y,
-                        _defaultCameraLocalPos.z + emote.scale);
+                    avatarCamera.transform.localPosition = targetPos;
                 }
             }
 
@@ -724,20 +798,24 @@ public class TheatreGamePanel : BasePanel<TheatreGamePanel>{
             {
                 if (isPgc)
                 {
-                    var baseRot = isDouble ? new Vector3(0, -90, 0) : Vector3.zero;
-                    characterRoot.DOKill();
-                    characterRoot.localEulerAngles = new Vector3(
+                    var baseRot = TheatreEmoteCameraLayout.GetBaseCharacterRotation(true, isDouble);
+                    _baseCharacterRotation = new Vector3(
                         baseRot.x + emote.customRotation.x,
-                        baseRot.y + emote.customRotation.y,
-                        0f);
-                    characterRoot.DOLocalMoveX(isDouble ? 50f : 0f, 0.5f);
+                        baseRot.y + emote.customRotation.y, 0f);
+                    characterRoot.DOKill();
+                    characterRoot.localEulerAngles = _baseCharacterRotation;
+                    // 官方(PGC)双人动作需要角色整体 X 位移，与相机 X 配合取景；
+                    // 编辑器 TheatreEditorEmoteShowcase 用同一函数应用，保证两边一致。
+                    characterRoot.DOLocalMoveX(TheatreEmoteCameraLayout.GetCharacterRootX(true, isDouble), 0.5f);
                 }
                 else
                 {
+                    _baseCharacterRotation = new Vector3(emote.customRotation.x, emote.customRotation.y, 0f);
                     characterRoot.DOKill();
-                    characterRoot.localEulerAngles = new Vector3(emote.customRotation.x, emote.customRotation.y, 0f);
+                    characterRoot.localEulerAngles = _baseCharacterRotation;
                     characterRoot.localPosition = new Vector3(0f, characterRoot.localPosition.y, characterRoot.localPosition.z);
                 }
+                _userRotY = 0f;
             }
         }
     }
@@ -1133,32 +1211,68 @@ public class TheatreGamePanel : BasePanel<TheatreGamePanel>{
             yield break;
         }
 
-        var wrapper = Loader.LoadRemoteImageAsync(targetBgUrl);
-        if (wrapper == null || wrapper.request == null)
+        // 背景可能是远程 UGC 图（http URL），也可能是默认背景库的本地资源（Assets/ 路径）。
+        // 与 RemoteImageBehaviour.Load 保持一致：本地路径走 xasset 资源加载，否则走远程图加载。
+        Texture texture;
+        if (targetBgUrl.StartsWith("Assets/"))
         {
-            LoggerUtils.LogError($"Load background failed, url={targetBgUrl}");
-            EndBackgroundChange();
-            yield break;
-        }
-
-        while (!wrapper.request.isDone)
-        {
-            if (completeBackgroundImmediately)
+            var wrapper = Loader.LoadAsync<Texture2D>(targetBgUrl);
+            if (wrapper == null || wrapper.request == null)
             {
-                wrapper.request.WaitForCompletion();
-                break;
+                LoggerUtils.LogError($"Load background failed, url={targetBgUrl}");
+                EndBackgroundChange();
+                yield break;
             }
-            yield return null;
-        }
 
-        if (wrapper.request.result != Request.Result.Success)
+            while (!wrapper.request.isDone)
+            {
+                if (completeBackgroundImmediately)
+                {
+                    wrapper.request.WaitForCompletion();
+                    break;
+                }
+                yield return null;
+            }
+
+            if (wrapper.request.result != Request.Result.Success)
+            {
+                LoggerUtils.LogError($"Load background failed, url={targetBgUrl}, error={wrapper.request.error}");
+                EndBackgroundChange();
+                yield break;
+            }
+
+            texture = wrapper.RetainAsset(gameObject);
+        }
+        else
         {
-            LoggerUtils.LogError($"Load background failed, url={targetBgUrl}, error={wrapper.request.error}");
-            EndBackgroundChange();
-            yield break;
+            var wrapper = Loader.LoadRemoteImageAsync(targetBgUrl);
+            if (wrapper == null || wrapper.request == null)
+            {
+                LoggerUtils.LogError($"Load background failed, url={targetBgUrl}");
+                EndBackgroundChange();
+                yield break;
+            }
+
+            while (!wrapper.request.isDone)
+            {
+                if (completeBackgroundImmediately)
+                {
+                    wrapper.request.WaitForCompletion();
+                    break;
+                }
+                yield return null;
+            }
+
+            if (wrapper.request.result != Request.Result.Success)
+            {
+                LoggerUtils.LogError($"Load background failed, url={targetBgUrl}, error={wrapper.request.error}");
+                EndBackgroundChange();
+                yield break;
+            }
+
+            texture = wrapper.RetainAsset(gameObject);
         }
 
-        var texture = wrapper.RetainAsset(gameObject);
         if (texture == null)
         {
             LoggerUtils.LogError($"Load background texture null, url={targetBgUrl}");

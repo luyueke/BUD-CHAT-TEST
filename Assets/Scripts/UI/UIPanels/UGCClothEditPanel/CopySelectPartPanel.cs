@@ -19,6 +19,13 @@ namespace Game.UGCEditor
         public Action _OnSelectReturn;
         private List<GameObject> items = new List<GameObject>();
         public bool isCharacter;
+
+        /// <summary>
+        /// 外部直接指定的 mask 贴图列表（盒子场景使用，跳过 ugcData 配置表路径）。
+        /// 按面索引顺序排列，Count 为 0 时回退到 ugcData 逻辑。
+        /// </summary>
+        public List<Texture> OverrideMaskTextures = new List<Texture>();
+
         private void Awake()
         {
             backBtn.onClick.AddListener(() =>
@@ -48,11 +55,12 @@ namespace Game.UGCEditor
                 //材质面板，ugcData为null
                 var ugcData = ugcDatas.Count > 0 ? ugcDatas[i] : null;
                 int index = i;
+                var overrideTex = (OverrideMaskTextures.Count > index) ? OverrideMaskTextures[index] : null;
                 selectPart.Init(RenderTextures[index], index + 1, (id) =>
                 {
                     OnPartSelect(id);
                     Hide();
-                }, ugcData,isCharacter);
+                }, ugcData, isCharacter, overrideTex);
                 items.Add(obj);
             }
         }

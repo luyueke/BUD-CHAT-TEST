@@ -34,6 +34,9 @@ namespace UI.UIPanels.IncubationCabin
             base.OnCreate();
             // 监听设备列表刷新事件（如添加新 Box 后重建列表）
             MessageHelper.AddListener(MessageName.OnBudBoxListInit, OnBudBoxListInit);
+            // 监听角色变更和场景变更，精确刷新对应设备 Item 的预览模型
+            MessageHelper.AddListener<string>(MessageName.OnBoxCharacterChanged, OnDeviceModelChanged);
+            MessageHelper.AddListener<string>(MessageName.OnBudBoxSceneChange, OnDeviceModelChanged);
 
             backBtn.onClick.AddListener(CloseSelf);
             AddBoxBtn.onClick.AddListener(() =>
@@ -55,6 +58,18 @@ namespace UI.UIPanels.IncubationCabin
         private void OnBudBoxListInit()
         {
             UpdateBudBoxList();
+        }
+
+        /// <summary>
+        /// 角色变更或场景变更回调：在激活列表中找到对应设备的 Item 并刷新预览模型
+        /// </summary>
+        /// <param name="deviceId">触发变更的设备 ID</param>
+        private void OnDeviceModelChanged(string deviceId)
+        {
+            for (int i = 0; i < _activeItems.Count; i++)
+            {
+                _activeItems[i].RefreshModelIfMatch(deviceId);
+            }
         }
 
         #endregion
@@ -152,6 +167,8 @@ namespace UI.UIPanels.IncubationCabin
         protected override void OnDestroy()
         {
             MessageHelper.RemoveListener(MessageName.OnBudBoxListInit, OnBudBoxListInit);
+            MessageHelper.RemoveListener<string>(MessageName.OnBoxCharacterChanged, OnDeviceModelChanged);
+            MessageHelper.RemoveListener<string>(MessageName.OnBudBoxSceneChange, OnDeviceModelChanged);
             RecycleAllItems();
             CabinBoxManager.Inst.DisconnectMqtt();
             base.OnDestroy();
@@ -162,18 +179,12 @@ namespace UI.UIPanels.IncubationCabin
         [Button("绑定测试")]
         void BindTest()
         {
-            // CabinBoxManager.Inst.BindCabinBox("BUD-330076C9");  //013
-            CabinBoxManager.Inst.BindCabinBox("BUD-13EDD13E");  //013
-            
-            // CabinBoxManager.Inst.BindCabinBox("BUD-269BF2A9");  //risa
-            
+            CabinBoxManager.Inst.BindCabinBox("deviceID222");
         }
         [Button("解绑测试")]
         void UnBindTest()
         {
-            CabinBoxManager.Inst.UnbindBudBox("BUD-11C68153");
-
-                // MessageHelper.Broadcast(MessageName.OnBoxDeviceStateChanged, "BUD-70029D72");
+            CabinBoxManager.Inst.UnbindBudBox("devicceID222");
         }
     }
 }

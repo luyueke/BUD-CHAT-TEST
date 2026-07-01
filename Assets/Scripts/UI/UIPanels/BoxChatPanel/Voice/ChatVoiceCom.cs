@@ -137,11 +137,11 @@ namespace Game
             tagTxtTempGo.SetActive(false);
             foreach (var tag in botProfile.botMatchTags)
             {
-                if (string.IsNullOrEmpty(tag?.categoryName)) continue;
+                if (string.IsNullOrEmpty(tag?.matchedTag)) continue;
                 var go = Instantiate(tagTxtTempGo, tagLayoutGo.transform);
                 go.SetActive(true);
                 var txt = go.GetComponentInChildren<Text>();
-                if (txt != null) txt.text = tag.categoryName;
+                if (txt != null) txt.text = tag.matchedTag;
                 _tagObjects.Add(go);
             }
         }
@@ -156,8 +156,8 @@ namespace Game
             if (botProfile.botMatchTags != null)
             {
                 foreach (var t in botProfile.botMatchTags)
-                    if (!string.IsNullOrEmpty(t?.matchedTag))
-                        _allTags.Add(t.matchedTag);
+                    if (!string.IsNullOrEmpty(t?.matchedTagId))
+                        _allTags.Add(t.matchedTagId);
             }
 
             // 1-2 标签：取前 2 个

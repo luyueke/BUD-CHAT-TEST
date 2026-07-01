@@ -612,7 +612,7 @@ public class IncubationCabinLinkBox : BasePanel<IncubationCabinLinkBox>
     void ScanSucc()
     {
 #if UNITY_EDITOR
-        ScannedQrJson = "AQAAAAAAaiJf-AxUQUItRDIxNzQxQjk0XVuYnopN0IVi0GGskHc-AAD_8AAAEACAAACAX5s0-5mKocdzcbVAI6p4cICIKe8GDctCWLGZOFCmYH6-zbRMDFRBQi1EMjE3NDFCOQ";
+        ScannedQrJson = "AQAAAAHnSfQzbabpqQ-46SlbyWhBaoMJhf1JJjGKAAD_8AAAEACAAACAX5s0-zSuQpiMbv_Tpa5WnhP9k01ETO47sSw6h3YSLK9srnluDFRBQi1BNkU5QTkwRg";
 #endif
         ScanQRCodes.SetActive(false);
         LinkPanle.SetActive(true);
@@ -846,38 +846,6 @@ public class IncubationCabinLinkBox : BasePanel<IncubationCabinLinkBox>
         OnBleConnectResult(true, "");
         UIManager.Inst.OpenPanel(PanelId.IncubationCabinControll);
 #endif
-    }
-
-    [Button("绑定测试")]
-    void BindTest()
-    {
-        CabinBoxManager.Inst.BindCabinBox("BUD-E02EDBF8"); //009
-        CabinBoxManager.Inst.BindCabinBox("BUD-12345678"); //009
-        // CabinBoxManager.Inst.BindCabinBox("BUD-269BF2A9"); //009
-        // CabinBoxManager.Inst.BindCabinBox("BUD-E02EDBF8"); //009
-        // CabinBoxManager.Inst.BindCabinBox("BUD-13EDD13E"); //012
-    }
-    [Button("解绑测试")]
-    void UnBindTest()
-    {
-        CabinBoxManager.Inst.UnbindBudBox("BUD-2D6429E1");
-    }
-
-    [Button("测试解码")]
-    void testtt()
-    {
-        ScannedQrJson = "AQAAAAAAaiJumNIXQbk0XVuYnopN0IVi0GGskHc-AAD_8AAAEACAAACAX5s0-5mKocdzcbVAI6p4cICIKe8GDctCWLGZOFCmYH6-zbRMDFRBQi1EMjE3NDFCOQ";
-
-        var qrData = QRPayloadEncoder.Decode(ScannedQrJson);
-        Debug.LogError(JsonConvert.SerializeObject(qrData));
-    }
-
-    [Button("测试")]
-    void test()
-    {
-        string qrCode = "AQAAAAHoEojSLxPt0T4EHsHXbsVFw4OlmZRErB1TAAD_8AAAEACAAACAX5s0-8o39H4-kF25cteCcv5su06F98g7dMqt-KlqdFktDQZxDEJVRC0xM0VERDEzRQ";
-        var qrCodeData = QRPayloadEncoder.Decode(qrCode);
-        Debug.LogError(JsonConvert.SerializeObject(qrCodeData));
     }
 
 }

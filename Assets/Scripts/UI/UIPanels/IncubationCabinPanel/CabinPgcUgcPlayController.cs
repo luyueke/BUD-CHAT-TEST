@@ -43,6 +43,21 @@ public class CabinPgcUgcPlayController
     private string _specialIdleId;
     // 每次调用 PlayAnim() 时自增，用于丢弃旧的异步下载回调，防止覆盖新播放请求
     private int _playGeneration = 0;
+
+    // 是否在重置角色位置时附加体型相关 Y 偏移（仅 UI 预览面板需要）
+    private readonly bool _applyBodyTypeOffset;
+
+    /// <summary>
+    /// 构造播放控制器。
+    /// </summary>
+    /// <param name="applyBodyTypeOffset">
+    /// 为 true 时，ResetIKPosition 会按当前体型补偿默认 Y 偏移（如 Type4 +0.2），
+    /// 避免重置后角色下沉。默认 false，保持其它复用方原有行为。
+    /// </param>
+    public CabinPgcUgcPlayController(bool applyBodyTypeOffset = false)
+    {
+        _applyBodyTypeOffset = applyBodyTypeOffset;
+    }
     public void Init(PlayerAnimationCtrl playerAnimationCtrl, CharacterWrap wrap, KinematicCharacterController controller, AvatarCameraController avatarCameraController)
     {
         PlayerAnimCtrl = playerAnimationCtrl;
@@ -154,7 +169,19 @@ public class CabinPgcUgcPlayController
     internal void ResetIKPosition()
     {
         var poseModeData = DataTables.GetPoseModeConfig((int)UgcPoseSubType.Single);
-        animationCtrlIK.transform.localPosition = poseModeData.RoleDefPos[0];
+
+        // 仅在开启体型偏移时，按当前体型补偿默认 Y 偏移，避免重置后角色下沉
+        float extraY = 0f;
+        if (_applyBodyTypeOffset)
+        {
+            var bodyTypeCtrl = animationCtrlIK.GetComponent<CustomBodyTypeController>();
+            if (bodyTypeCtrl != null && bodyTypeCtrl.GetCurrentBodyType() == CustomBodyTypeController.BodyType.Type4)
+            {
+                extraY = 0.2f;  // 与 AvatarController.CreateUIAvatarWithIK 创建时的偏移保持一致
+            }
+        }
+
+        animationCtrlIK.transform.localPosition = poseModeData.RoleDefPos[0] + new Vector3(0, extraY, 0);
         animationCtrlIK.transform.localEulerAngles = Vector3.zero;
         animationCtrlIK.transform.localScale = Vector3.one;
         animationCtrlIK.transform.parent.localPosition = poseModeData.EditPos[0];

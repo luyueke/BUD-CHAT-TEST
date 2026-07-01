@@ -76,6 +76,8 @@ public class LogOutPanel  : BasePanel<SettingPanel>
             Debug.LogError("OnLogOutClick Exception e.message=" + e.Message);
         }
         AccountDataManager.Inst.DeleteCache();
+        // 清掉记住的测试账号，登出后回到登录页显示账号选择（切换账号）；线上开关关闭时为空操作
+        SignInPanel.ClearRememberedTestAccount();
         UIManager.Inst.ClosePanel(PanelId.GameHallPanel);
         UIManager.Inst.OpenPanel(PanelId.SignInPanel);
         MobileInterface.Instance.SendMessage(MobileInterfaceDefine.logout,"");

@@ -447,8 +447,6 @@ namespace Game.BLE
             MobileInterface.Instance.SendMessage(FnSendDataToDevice, data);
         }
 
-        static WifiConfig _curSendWifiConfig;//记录当前发送给硬件连接的wifi设备
-
         /// <summary>发送 WiFi 配置到硬件设备（需已连接）</summary>
         public static void SendWifiConfig(WifiConfig config, Action<bool, string> cb = null)
         {

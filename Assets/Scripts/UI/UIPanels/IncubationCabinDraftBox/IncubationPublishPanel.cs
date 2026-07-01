@@ -172,11 +172,15 @@ namespace UI.UIPanels.IncubationCabin
             // 皮肤单品数量（官方和UGC均计入）
             int skinCount = CountSkinParts(info.skinPack);
 
-            // UGC 动作数量（官方/PGC 动作不计入，通过 ugcData 是否有值区分）
-            int ugcActionCount = (info.pendingEmote?.emoteList?.Count(x => x.ugcData != null) ?? 0)
-                               + (info.pendingEmote?.loopEmoteList?.Count(x => x.ugcData != null) ?? 0)
-                               + (info.activation?.Count(x => x.ugcData != null) ?? 0)
-                               + (info.voiceCommands?.Count(x => x.ugcData != null) ?? 0);
+            // 免费表：CabinPgcEmoConfig 中登记的 emoID 视为官方免费动作，不计价
+            var freeEmoIdSet = BuildFreeEmoIdSet();
+
+            // 计价动作数量：UGC 自制 + 钻石/扭蛋获取的 PGC 动作；免费表中的官方动作不计入
+            int chargeableActionCount =
+                  (info.pendingEmote?.emoteList?.Count(x => IsChargeableAction(x.emoteId, x.ugcData != null, freeEmoIdSet)) ?? 0)
+                + (info.pendingEmote?.loopEmoteList?.Count(x => IsChargeableAction(x.emoteId, x.ugcData != null, freeEmoIdSet)) ?? 0)
+                + (info.activation?.Count(x => IsChargeableAction(x.emoteId, x.ugcData != null, freeEmoIdSet)) ?? 0)
+                + (info.voiceCommands?.Count(x => IsChargeableAction(x.emoteId, x.ugcData != null, freeEmoIdSet)) ?? 0);
 
             // UGC 音色数量（官方音色不计入，最多 1 个；通过 CabinToneNetManager 查询是否为 PGC）
             int ugcVoiceCount = 0;
@@ -187,8 +191,8 @@ namespace UI.UIPanels.IncubationCabin
                     ugcVoiceCount = 1;
             }
 
-            // 公式：100 + 皮肤单品数量*10 + ugc动作数量*50 + ugc音色数量*10
-            int calculated = 100 + skinCount * 10 + ugcActionCount * 50 + ugcVoiceCount * 10;
+            // 公式：100 + 皮肤单品数量*10 + 计价动作数量*50 + ugc音色数量*10
+            int calculated = 100 + skinCount * 10 + chargeableActionCount * 50 + ugcVoiceCount * 10;
 
             // 计算结果低于 200 时，最低售价为 200
             _minPrice = Mathf.Max(200, calculated);
@@ -214,6 +218,66 @@ namespace UI.UIPanels.IncubationCabin
                 catch { }
             }
             return count;
+        }
+
+        /// <summary>
+        /// 汇总 CabinPgcEmoConfig 全表（所有 usetype）的免费 emoID，构建查询集合。
+        /// 表中登记的 emoID 视为官方免费动作，不计入定价。
+        /// 此外固定包含两个特殊动作 default（默认动作）、leisure（休闲动作），始终视为免费。
+        /// </summary>
+        /// <returns>所有免费 emoID 的集合（含 default、leisure）；表为空时仅含这两个特殊动作</returns>
+        private static System.Collections.Generic.HashSet<string> BuildFreeEmoIdSet()
+        {
+            var set = new System.Collections.Generic.HashSet<string>();
+
+            // 两个固定特殊动作：default（默认动作）、leisure（休闲动作）始终视为官方免费动作，不计价
+            set.Add("default");
+            set.Add("leisure");
+
+            var list = Es.DataTables.GetCabinPgcEmoConfigList();
+
+            if (list == null)
+                return set;
+
+            foreach (var config in list)
+            {
+                // emoID 为逗号分隔的字符串，逐行拆分后并入集合
+                if (config == null || string.IsNullOrEmpty(config.emoID))
+                    continue;
+
+                var ids = config.emoID.Split(',');
+                foreach (var id in ids)
+                {
+                    var trimmed = id.Trim();
+                    if (!string.IsNullOrEmpty(trimmed))
+                        set.Add(trimmed);
+                }
+            }
+
+            return set;
+        }
+
+        /// <summary>
+        /// 判断单个动作是否计入定价。
+        /// 规则：UGC 自制动作始终计价；emoID 在免费表中视为官方免费动作不计价；
+        /// 其余（钻石购买/扭蛋获取的 PGC 动作）正常计价。
+        /// </summary>
+        /// <param name="emoteId">动作 ID</param>
+        /// <param name="hasUgcData">是否为 UGC 自制动作（ugcData != null）</param>
+        /// <param name="freeSet">免费 emoID 集合</param>
+        /// <returns>true 表示该动作计入定价</returns>
+        private static bool IsChargeableAction(string emoteId, bool hasUgcData, System.Collections.Generic.HashSet<string> freeSet)
+        {
+            // UGC 自制动作始终计价
+            if (hasUgcData)
+                return true;
+
+            // 空槽位（无动作）不计价
+            if (string.IsNullOrEmpty(emoteId))
+                return false;
+
+            // 免费表中的官方动作不计价，其余（钻石/扭蛋 PGC）计价
+            return !freeSet.Contains(emoteId);
         }
 
         private void RefreshPriceToggleLabels()

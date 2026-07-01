@@ -142,6 +142,9 @@ namespace UI.UIPanels.IncubationCabin
             CabinBoxManager.Inst.SetBoxScenePath(_sceneInfo?.id ?? string.Empty, _sceneInfo?.metaDataUrl);
             CabinBoxManager.Inst.SendMqttMessage(MqttMsgOperType.set_scene);
 
+            // 切换场景交互埋点：用户点击「切换」确认应用时上报
+            IncubationCabinControll.ReportThinkingData("switch_scene");
+
             StartSyncTimeoutTimer();
         }
 
@@ -160,6 +163,15 @@ namespace UI.UIPanels.IncubationCabin
 
             _isSyncing = false;
             StopSyncTimeoutTimer();
+
+            // 场景同步成功，广播场景变更，通知列表面板刷新对应 Item 模型
+            string deviceId = CabinBoxManager.Inst.GetCurrentDeviceId();
+
+            if (!string.IsNullOrEmpty(deviceId))
+            {
+                MessageHelper.Broadcast<string>(MessageName.OnBudBoxSceneChange, deviceId);
+            }
+
             CloseSelf();
         }
 

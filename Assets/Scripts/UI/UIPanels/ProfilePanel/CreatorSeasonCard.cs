@@ -71,16 +71,17 @@ public class CreatorSeasonCard : BaseCard
             if (!string.IsNullOrEmpty(selfUid) && userInfo?.uid == selfUid
                 && CreatorRequestCtrl.Inst != null)
             {
-                // 自己的主页：用本周列表接口验证"使用中"徽章是否本周仍有效
-                // UserInfo.creatorBadgeInfo 记录用户设置的使用中 category，但 settleTime 不可靠
-                // 在本周列表中找到同 category 则说明未过期，找不到则隐藏
-                var inUseCategory = AccountDataManager.Inst.UserInfo?.creatorBadgeInfo?.category ?? -1;
-                CreatorRequestCtrl.Inst.RequestCreatorBadgeListInfo(0, res =>
+                // 自己的主页：直接用总榜接口数据，没数据就没徽章
+                CreatorRequestCtrl.Inst.RequestCreatorBadgeListInfo(1, res =>
                 {
                     if (!this) return;
-                    var cur = inUseCategory >= 0
-                        ? res?.list?.Find(b => b.category == inUseCategory)
-                        : null;
+                    if (res?.list == null || res.list.Count == 0)
+                    {
+                        _userBadge.Hide();
+                        return;
+                    }
+                   
+                    var cur = res.list.Find(b => b.category == 0); 
                     if (cur != null)
                         _userBadge.SetData(cur.category, cur.level);
                     else
@@ -89,17 +90,22 @@ public class CreatorSeasonCard : BaseCard
             }
             else
             {
-                // 他人主页：用 publicProfile 下发的 creatorBadgeInfo；settleTime=0 表示已过期
+                // 他人主页：用 publicProfile 下发的 creatorBadgeInfo
+                // settleTime == 0 表示服务端未回填，不视为过期；> 0 时才做跨周校验
                 var badgeInfo = userInfo?.creatorBadgeInfo;
                 if (badgeInfo != null)
                 {
                     long serverTime = TcpTimeSystem.Inst.ServerTime;
-                    bool isExpiredByWeek = badgeInfo.settleTime == 0
-                                           || TimeTools.IsNewWeek(badgeInfo.settleTime, serverTime);
+                    bool isExpiredByWeek = badgeInfo.settleTime > 0
+                                           && TimeTools.IsNewWeek(badgeInfo.settleTime, serverTime);
                     if (!isExpiredByWeek)
                         _userBadge.SetData(badgeInfo.category, badgeInfo.level);
                     else
                         _userBadge.Hide();
+                }
+                else
+                {
+                    _userBadge.Hide();
                 }
             }
         }

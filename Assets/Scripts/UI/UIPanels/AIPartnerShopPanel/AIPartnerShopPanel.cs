@@ -13,6 +13,7 @@ using UI.Base;
 using UI.BaseWidgets;
 using Com.TheFallenGames.OSA.Util.IO;
 using UI.UIPanels.FittingRoom;
+using UI.UIPanels.IncubationCabin;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -48,6 +49,7 @@ public class AIPartnerShopPanel : BasePanel<AIPartnerShopPanel>
     [SerializeField] private CButton DetailBtn;
     [SerializeField] private AIPartnerAdpter Adpter;
     [SerializeField] private CButton ToCreateBtn;
+    [SerializeField] private GameObject AvatarCamera;
     [Header("Box盒子")]
     [SerializeField] private GameObject PartnerBoxRoot;
     [SerializeField] private PartnerBoxAdpter BoxAdpter;
@@ -56,6 +58,9 @@ public class AIPartnerShopPanel : BasePanel<AIPartnerShopPanel>
     [SerializeField] private Transform HeadRoot;
     [SerializeField] private CButton HeadBtn;
     [SerializeField] private RemoteImageBehaviour HeadImg;
+    [SerializeField] private GameObject BoxCamera;
+    // 盒子 3D 预览组件，统一负责盒子模型生成、纹理加载与资源释放（放置在 BoxModelRoot 节点下）
+    [SerializeField] private BudBoxModel BudBoxModel;
 
     private List<ShopTagItem> _tagItems = new List<ShopTagItem>();
     private List<CabinCharacterUgcInfo> _curSectionItems = new List<CabinCharacterUgcInfo>();
@@ -71,8 +76,6 @@ public class AIPartnerShopPanel : BasePanel<AIPartnerShopPanel>
     private string _searchKeyword = string.Empty;
     private List<CharacterBoxInfo> _curBoxSectionItems = new List<CharacterBoxInfo>();
     private CharacterBoxInfo _curSelectBoxData;
-    private GameObject _boxModel;
-    private readonly List<Texture2D> _boxTextures = new List<Texture2D>();
     private AIPartnerTabSecond _currentTab = (AIPartnerTabSecond)(-1);
     private readonly List<Text> _tabToggleTexts = new List<Text>();
     private static readonly Color TabSelectedColor = DataUtil.DeSerializeColor("CDFF71");
@@ -133,6 +136,9 @@ public class AIPartnerShopPanel : BasePanel<AIPartnerShopPanel>
 
         AICharacterRoot.SetActive(tab == AIPartnerTabSecond.AICharacter);
         PartnerBoxRoot.SetActive(tab == AIPartnerTabSecond.PartnerBox);
+        // AI伙伴页用 AvatarCamera，盒子页用 BoxCamera
+        if (AvatarCamera != null) AvatarCamera.SetActive(tab == AIPartnerTabSecond.AICharacter);
+        if (BoxCamera != null) BoxCamera.SetActive(tab == AIPartnerTabSecond.PartnerBox);
         DetailBtn.gameObject.SetActive(tab == AIPartnerTabSecond.AICharacter);
         CharacterRoot.gameObject.SetActive(tab == AIPartnerTabSecond.AICharacter);
         BoxModelRoot.gameObject.SetActive(tab == AIPartnerTabSecond.PartnerBox);
@@ -394,7 +400,12 @@ public class AIPartnerShopPanel : BasePanel<AIPartnerShopPanel>
         Price.gameObject.SetActive(!isOwned);
         if (!isOwned) Price.text = info.paymentInfo?.price.ToString() ?? "0";
 
-        LoadBoxModel(info);
+        // 交由 BudBoxModel 统一加载盒子模型与自定义纹理
+        if (BudBoxModel != null)
+        {
+            BudBoxModel.LoadBoxScene(info.metaDataUrl);
+        }
+
         BoxAdpter.SelectById(info.id);
         FetchBoxCreator(info.creator);
     }
@@ -418,80 +429,6 @@ public class AIPartnerShopPanel : BasePanel<AIPartnerShopPanel>
     {
         return info.consumed == 1
                || info.creator == AccountDataManager.Inst.Uid;
-    }
-
-    private const string BoxModelPath =
-        "Assets/Loadable/Avatar/UGCRolePart/ModelPrefab/UGCBoxScene/qiye_ugcBreedingFarm_1_3d.prefab";
-
-    private void LoadBoxModel(CharacterBoxInfo info)
-    {
-        foreach (var t in _boxTextures) if (t != null) Destroy(t);
-        _boxTextures.Clear();
-
-        if (_boxModel != null)
-        {
-            Destroy(_boxModel);
-            _boxModel = null;
-        }
-
-        var prefab = Loader.Load<GameObject>(BoxModelPath);
-        if (prefab == null) return;
-
-        _boxModel = prefab.Instantiate(BoxModelRoot);
-        _boxModel.transform.localPosition = Vector3.zero;
-
-        if (string.IsNullOrEmpty(info.metaDataUrl)) return;
-
-        var cachedModel = _boxModel;
-        var request = Asset.LoadRemoteAssetAsync(info.metaDataUrl);
-        if (request == null) return;
-        request.completed += _ =>
-        {
-            if (cachedModel == null || request.result != Request.Result.Success) return;
-            var text = System.Text.Encoding.UTF8.GetString(request.asset);
-            if (string.IsNullOrEmpty(text)) return;
-            var boxData = JsonConvert.DeserializeObject<UGCBoxSceneData>(text);
-            if (boxData != null) ApplyBoxTextures(cachedModel, boxData);
-        };
-    }
-
-    private void ApplyBoxTextures(GameObject model, UGCBoxSceneData boxData)
-    {
-        if (boxData?.parts == null || boxData.parts.Count == 0) return;
-
-        var renderers = model.GetComponentsInChildren<Renderer>(true);
-        if (renderers.Length == 0) return;
-
-        foreach (var part in boxData.parts)
-        {
-            if (part?.pixels == null || part.pixels.Count == 0) continue;
-            int rendererIndex = part.type - 1;
-            if (rendererIndex < 0 || rendererIndex >= renderers.Length) continue;
-
-            int canvasSize = part.pixels.Count <= 1024 ? 32 : 64;
-            var colors = new Color32[canvasSize * canvasSize];
-
-            foreach (var pixel in part.pixels)
-            {
-                var pos = DataUtil.DeSerializeVector2Int(pixel.p);
-                Color col = DataUtil.DeSerializeColor(pixel.col);
-                int idx = pos.y * canvasSize + pos.x;
-                if (idx >= 0 && idx < colors.Length) colors[idx] = col;
-            }
-
-            var tex = new Texture2D(canvasSize, canvasSize, TextureFormat.RGBA32, false);
-            tex.SetPixels32(colors);
-            tex.Apply();
-            _boxTextures.Add(tex);
-
-            var mat = renderers[rendererIndex].material;
-            if (mat.shader.name == "Universal Render Pipeline/Lit")
-                mat.SetTexture("_BaseMap", tex);
-            else if (mat.shader.name == "bud/patterns_ugc_ARI")
-                mat.SetTexture("_patterns_tex", tex);
-            else
-                mat.SetTexture("_MainTex", tex);
-        }
     }
 
     private void BuyBtnOnClick()
@@ -696,12 +633,11 @@ public class AIPartnerShopPanel : BasePanel<AIPartnerShopPanel>
     {
         base.OnHidden();
         _standbyAnimCtrl.Stop();
-        foreach (var t in _boxTextures) if (t != null) Destroy(t);
-        _boxTextures.Clear();
-        if (_boxModel != null)
+
+        // 释放盒子模型及其动态纹理，防止内存泄漏
+        if (BudBoxModel != null)
         {
-            Destroy(_boxModel);
-            _boxModel = null;
+            BudBoxModel.Clear();
         }
     }
 }

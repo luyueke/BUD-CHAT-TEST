@@ -70,7 +70,7 @@ namespace UI.UIPanels.IncubationCabin
         internal RemoteImageBehaviour remoteImg;
         internal Button remoteImgBtn;
         internal LikeButton LikeBtn;
-        internal Text txt_user_name;
+        internal SuperTextMesh txt_user_name;
         internal Text txt_like;
 
         // ── interact ──
@@ -137,7 +137,8 @@ namespace UI.UIPanels.IncubationCabin
         private Text creatorLevel;
 
         // ── controller ──
-        CabinPgcUgcPlayController cabinPgcUgcPlayController = new();
+        // 传 true：开启体型 Y 偏移补偿，避免切页签重置位置后 Type4 角色掉回 -0.5
+        CabinPgcUgcPlayController cabinPgcUgcPlayController = new(true);
         private BudTimer _previewDelayTimer;
         // 动画播完但语音仍在播放时，等待语音结束的协程
         private Coroutine _audioWaitCoroutine;
@@ -169,7 +170,7 @@ namespace UI.UIPanels.IncubationCabin
             var RoleVoice = contentRoot?.Find("RoleVoice");
             remoteImg = RoleVoice.Find("remoteImg").GetComponent<RemoteImageBehaviour>();
             remoteImgBtn = RoleVoice.Find("remoteImg")?.GetComponent<Button>();
-            txt_user_name = RoleVoice.Find("name").GetComponent<Text>();
+            txt_user_name = RoleVoice.Find("name").GetComponent<SuperTextMesh>();
             txt_like = RoleVoice.Find("LikeBtn/value").GetComponent<Text>();
             LikeBtn = GameObjectEx.FindChildByName(RoleVoice, "LikeBtn")?.GetComponent<LikeButton>();
 

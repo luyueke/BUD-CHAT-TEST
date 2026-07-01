@@ -2,6 +2,7 @@ using Game.BLE;
 using Game.BudBox;
 using Message;
 using System.Collections.Generic;
+using UI.UIPanels.IncubationCabin; // 交互埋点上报方法 IncubationCabinControll.ReportThinkingData
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -114,6 +115,9 @@ public class CabinControllNetPanel : CabinControllSettleSubPanel
         //    TipPanel.ShowToast("BUD BOX 离线，无法添加网络");
         //    return;
         //}
+
+        // 添加网络交互埋点：点击「添加 Wi-Fi」按钮时上报
+        IncubationCabinControll.ReportThinkingData("network_add");
 
         UIManager.Inst.OpenPanel(PanelId.IncubationCabinWifiSetting, "CabinControll");
     }

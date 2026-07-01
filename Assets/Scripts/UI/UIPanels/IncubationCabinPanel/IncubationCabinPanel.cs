@@ -11,6 +11,7 @@ using Newtonsoft.Json;
 using Sirenix.OdinInspector;
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using UI.Base;
 using UI.UIPanels.FittingRoom;
@@ -21,6 +22,9 @@ namespace UI.UIPanels.IncubationCabin
 {
     partial class IncubationCabinPanel : BasePanel<IncubationCabinPanel>
     {
+        // 官方姿势配置文件路径，与 DraftBoxCharacterPosePanel.OfficialPoseConfigPath 保持一致
+        private const string OfficialPoseConfigPath = "Assets/Arts/Config/CabinPoseConfig/cabinofficialPose.json";
+
         [SerializeField] internal GoToggle[] leftToggles;
         [SerializeField] internal Button changePreviewBtn;
         [SerializeField] internal Button editskinBtn;
@@ -260,9 +264,6 @@ namespace UI.UIPanels.IncubationCabin
 
             animationCtrlIK.ChangeAnimResType(AnimResType.UGC);
             animationCtrlIK.SetKeyFrameData(UgcPoseSubType.Single, keyFrameData);
-            var animator = animationCtrlIK.GetComponent<Animator>();
-            if (animator != null) animator.enabled = true;
-            animationCtrl?.PlayCurEyeAni();
         }
 
         void InitUI()
@@ -365,8 +366,9 @@ namespace UI.UIPanels.IncubationCabin
             {
                 var originalInfo = JsonConvert.DeserializeObject<CabinCharacterBaseInfo>(_originalDataJson);
                 bool skinChanged = JsonConvert.SerializeObject(info.skinPack) != JsonConvert.SerializeObject(originalInfo?.skinPack);
+                bool poseChanged = JsonConvert.SerializeObject(info.coverInfo) != JsonConvert.SerializeObject(originalInfo?.coverInfo);
 
-                if (skinChanged)
+                if (skinChanged || poseChanged)
                 {
                     string photoUrl = null;
                     yield return StartCoroutine(TakeMatchPhoto((success, url) =>
@@ -545,17 +547,16 @@ namespace UI.UIPanels.IncubationCabin
         }
 
         /// <summary>
-        /// 以当前 coverInfo 的姿势/位置/缩放为参数，临时调整角色和相机，
-        /// 调用工具类完成截图 + COS 上传，完成后还原所有临时状态。
+        /// 拍照前置处理：应用 coverInfo 的位置/缩放、暂停待机动画、清理道具特效、
+        /// 设置 T 姿势并应用 coverInfo 姿势数据。
+        /// 供 TakeMatchPhoto（yield return）和 ApplyPhotoParams（StartCoroutine）共用，
+        /// 确保两处行为完全一致，只需维护一段逻辑。
         /// </summary>
-        public IEnumerator TakeMatchPhoto(Action<bool, string> callback = null)
+        private IEnumerator PrepareCharacterForPhoto()
         {
-            // ── 1. 临时应用 coverInfo 的位置 / 缩放 ──────────────────────────
             var coverDetail = info?.coverInfo?.GetDetail();
-            var origLocalScale = characterRoot.localScale;
-            var origLocalPosition = characterRoot.localPosition;
-            bool poseChanged = false;
 
+            // ── 1. 临时应用 coverInfo 的位置 / 缩放 ──────────────────────────
             if (coverDetail != null)
             {
                 float scale = coverDetail.sizeVec3.x > 0 ? coverDetail.sizeVec3.x : 1f;
@@ -566,28 +567,36 @@ namespace UI.UIPanels.IncubationCabin
                     characterRoot.localPosition.z);
             }
 
-            // ── 2. 临时应用 coverInfo 的姿势 ─────────────────────────────────
+            // 角色统一朝向相机（绕 Y 轴旋转 180°）
+            characterRoot.localEulerAngles = new Vector3(0f, 180f, 0f);
+
+            // ── 2. 清理当前动作道具特效，还原到待机状态 ─────────────────────
+            interactNode.PgcUgcController.PlayLeisureIdle();
+
+            // ── 3. 暂停待机动画循环，防止拍照期间定时器触发打断 ─────────────
+            animationCtrl.GetComponent<Animator>().enabled = false;
+            _standbyAnimCtrl.Stop();
+
+
+            // ── 4. 设置 T 姿势，并显式开启 FullBodyBipedIK / LookAtIK / 控制器
+            if (animationCtrlIK != null)
+            {
+                animationCtrlIK.ChangeAnimResType(AnimResType.UGC);
+                animationCtrlIK.ResetJointNodes();
+                animationCtrlIK.EnableIKForPhoto();
+            }
+
+            // ── 5. 应用 coverInfo 的姿势数据 ─────────────────────────────────
             if (coverDetail != null && !string.IsNullOrEmpty(coverDetail.poseId))
             {
                 if (coverDetail.poseResourceType == (int)ResourceType.Pose)
                 {
-                    bool poseDone = false;
-                    FreePoseDataLoader.GetData(UgcPoseSubType.Single, (poseList) =>
+                    // 官方姿势：从 cabinofficialPose.json 配置中同步查找
+                    // （与 DraftBoxCharacterPosePanel.LoadOfficialPoses 取数据方式保持一致）
+                    var poseData = FindOfficialPoseData(coverDetail.poseId);
+                    if (!string.IsNullOrEmpty(poseData))
                     {
-                        foreach (var item in poseList)
-                        {
-                            if (item.poseInfo.id == coverDetail.poseId)
-                            {
-                                ApplyPose(item.poseInfo.poseData);
-                                poseChanged = true;
-                                break;
-                            }
-                        }
-                        poseDone = true;
-                    }, gameObject);
-                    while (!poseDone)
-                    {
-                        yield return null;
+                        ApplyPose(poseData);
                     }
                 }
                 else if (coverDetail.poseResourceType == (int)ResourceType.UgcPose)
@@ -605,47 +614,115 @@ namespace UI.UIPanels.IncubationCabin
                         if (poseInfo != null)
                         {
                             ApplyPose(poseInfo.poseData);
-                            poseChanged = true;
                         }
                         break;
                     }
                 }
             }
 
-            // ── 3. 临时设置相机参数 ───────────────────────────────────────────
+            // 等待一帧，确保姿势 / IK 写入骨骼后再交由相机截图
+            yield return null;
+        }
+
+        /// <summary>
+        /// 从本地官方姿势配置 cabinofficialPose.json 中按 poseId 查找 KeyFrameData JSON。
+        /// 取数据方式与 DraftBoxCharacterPosePanel.LoadOfficialPoses 一致，避免依赖其静态缓存。
+        /// </summary>
+        /// <param name="poseId">官方姿势 ID</param>
+        /// <returns>KeyFrameData JSON 字符串；未找到或读取失败时返回 null</returns>
+        private string FindOfficialPoseData(string poseId)
+        {
+            if (string.IsNullOrEmpty(poseId))
+                return null;
+
+            var wrapper = Loader.Load<TextAsset>(OfficialPoseConfigPath);
+
+            if (wrapper == null)
+            {
+                LoggerUtils.LogError("[IncubationCabinPanel] 官方姿势配置文件读取失败");
+                return null;
+            }
+
+            // RetainAsset 绑定到当前 GameObject，面板销毁时自动释放资源
+            var textAsset = wrapper.RetainAsset(gameObject);
+            var configs = JsonConvert.DeserializeObject<List<OfficialPoseConfig>>(textAsset.text);
+
+            if (configs == null)
+                return null;
+
+            foreach (var config in configs)
+            {
+                if (config.id == poseId)
+                    return config.poseData?.poseData;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// cabinofficialPose.json 单条姿势配置，仅供本面板内部查找官方姿势数据使用。
+        /// </summary>
+        private class OfficialPoseConfig
+        {
+            public string id;
+            public string name;
+            public int poseType;
+            public PoseInfo poseData;
+            public string textureUrl;
+        }
+
+        /// <summary>
+        /// 调用 PrepareCharacterForPhoto 完成角色前置处理，再截图上传，完成后还原所有临时状态。
+        /// </summary>
+        public IEnumerator TakeMatchPhoto(Action<bool, string> callback = null)
+        {
+            // 先记录原始变换，PrepareCharacterForPhoto 会临时修改 characterRoot
+            var origLocalScale = characterRoot.localScale;
+            var origLocalPosition = characterRoot.localPosition;
+            var origLocalRotation = characterRoot.localRotation;
+
+            // ── 临时设置相机参数 ──────────────────────────────────────────────
             var origClearFlags = photoCamera.clearFlags;
             var origBackgroundColor = photoCamera.backgroundColor;
             var origTargetTexture = photoCamera.targetTexture;
+            var origOrthographicSize = photoCamera.orthographicSize;
 
             var rt = new RenderTexture(512, 512, 16, RenderTextureFormat.ARGB32);
             photoCamera.clearFlags = CameraClearFlags.SolidColor;
-            photoCamera.backgroundColor = Color.clear;
+            photoCamera.backgroundColor = new Color(1, 1, 1, 0);
             photoCamera.targetTexture = rt;
+            photoCamera.orthographicSize = 1f;
 
-            // ── 4. 调用工具类截图并上传（内部包含 WaitForEndOfFrame）────────
+            // 统一角色前置处理（与 ApplyPhotoParams 共用同一协程）
+            yield return StartCoroutine(PrepareCharacterForPhoto());
+
+            // ── 截图并上传（内部包含 WaitForEndOfFrame）────────────────────────
             string uploadedUrl = null;
-            yield return StartCoroutine(CabinCoverPhotoHelper.UploadFromRenderTexture(rt, url =>
+            yield return StartCoroutine(CabinCoverPhotoHelper.UploadFromRenderTexture(photoCamera.targetTexture, url =>
             {
                 uploadedUrl = url;
             }));
 
-            // ── 5. 还原相机参数 ───────────────────────────────────────────────
+            // ── 还原相机参数 ──────────────────────────────────────────────────
             photoCamera.clearFlags = origClearFlags;
             photoCamera.backgroundColor = origBackgroundColor;
             photoCamera.targetTexture = origTargetTexture;
+            photoCamera.orthographicSize = origOrthographicSize;
             rt.Release();
 
-            // ── 6. 还原 characterRoot 变换 ────────────────────────────────────
+            // ── 还原 characterRoot 变换 ───────────────────────────────────────
             characterRoot.localScale = origLocalScale;
             characterRoot.localPosition = origLocalPosition;
+            characterRoot.localRotation = origLocalRotation;
 
-            // ── 7. 还原动画模式 ───────────────────────────────────────────────
-            if (poseChanged && animationCtrlIK != null)
+            // ── 还原动画模式，恢复待机循环 ───────────────────────────────────
+            if (animationCtrlIK != null)
             {
                 animationCtrlIK.ChangeAnimResType(AnimResType.PGC);
             }
+            _standbyAnimCtrl.Resume();
 
-            // ── 8. 回调 ───────────────────────────────────────────────────────
+            // ── 回调 ─────────────────────────────────────────────────────────
             if (!string.IsNullOrEmpty(uploadedUrl))
             {
                 callback?.Invoke(true, uploadedUrl);
@@ -863,58 +940,21 @@ namespace UI.UIPanels.IncubationCabin
             }
         }
 
+        /// <summary>
+        /// 编辑器调试按钮：将角色和相机切换到与实际拍照完全一致的状态，方便在 Scene 视图预览效果。
+        /// 与 TakeMatchPhoto 共用 PrepareCharacterForPhoto 协程，无需单独维护。
+        /// </summary>
         private void ApplyPhotoParams()
         {
-            var coverDetail = info?.coverInfo?.GetDetail();
+            // 与 TakeMatchPhoto 走同一段前置处理逻辑，保证预览效果与实际拍照一致
+            StartCoroutine(PrepareCharacterForPhoto());
 
-            if (coverDetail != null)
-            {
-                float scale = coverDetail.sizeVec3.x > 0 ? coverDetail.sizeVec3.x : 1f;
-                characterRoot.localScale = Vector3.one * scale;
-                characterRoot.localPosition = new Vector3(
-                    coverDetail.posVec3.x,
-                    coverDetail.posVec3.y,
-                    characterRoot.localPosition.z);
-
-                if (!string.IsNullOrEmpty(coverDetail.poseId))
-                {
-                    if (coverDetail.poseResourceType == (int)ResourceType.Pose)
-                    {
-                        FreePoseDataLoader.GetData(UgcPoseSubType.Single, (poseList) =>
-                        {
-                            foreach (var item in poseList)
-                            {
-                                if (item.poseInfo.id == coverDetail.poseId)
-                                {
-                                    ApplyPose(item.poseInfo.poseData);
-                                    return;
-                                }
-                            }
-                        }, gameObject);
-                    }
-                    else if (coverDetail.poseResourceType == (int)ResourceType.UgcPose)
-                    {
-                        var dataHandler = AssetsDataManager.GetData<AvatarBagSceneHandler>();
-                        var datas = dataHandler.GetGoodsData(UniqueType.Get(ResourceType.UgcPose, (int)UgcPoseSubType.Single));
-                        foreach (var goodsData in datas)
-                        {
-                            var asset = goodsData.GetFirstAsset<AssetsData>();
-
-                            if (asset == null || asset.Id != coverDetail.poseId)
-                                continue;
-
-                            var poseInfo = asset.UgcInfo?.UgcInfo as PoseInfo;
-                            if (poseInfo != null) ApplyPose(poseInfo.poseData);
-                            return;
-                        }
-                    }
-                }
-            }
-
+            // ── 相机配置（仅供编辑器预览，不还原）──────────────────────────────
             var rt = new RenderTexture(512, 512, 16, RenderTextureFormat.ARGB32);
             photoCamera.clearFlags = CameraClearFlags.SolidColor;
-            photoCamera.backgroundColor = Color.clear;
+            photoCamera.backgroundColor = new Color(1, 1, 1, 0);
             photoCamera.targetTexture = rt;
+            photoCamera.orthographicSize = 1f;
         }
 #endif
         internal void ChangeToneID(string toneId)

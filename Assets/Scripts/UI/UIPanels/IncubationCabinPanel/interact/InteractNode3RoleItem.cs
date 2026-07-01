@@ -37,9 +37,9 @@ public class InteractNode3RoleItem : BaseInteractRoleItem<voiceCommands>
             pop.SetData(
                 onConfirm: (input) =>
                 {
-                    if (input == null || input.Length < 3 || input.Length > 25)
+                    if (input == null || input.Length < 2 || input.Length > 25)
                     {
-                        TipPanel.ShowToast("字数不符合要求，需在3-25字以内");
+                        TipPanel.ShowToast("字数不符合要求，需在2-25字以内");
                         return;
                     }
 

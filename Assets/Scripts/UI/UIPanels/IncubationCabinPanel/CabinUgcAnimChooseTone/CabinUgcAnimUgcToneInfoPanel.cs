@@ -95,7 +95,36 @@ public class CabinUgcAnimUgcToneInfoPanel : MonoBehaviour
             return;
         }
 
-        Adapter.Data.List.AddRange(tonePublishedDatas);
+        // 收集当前列表已存在的 id，下拉加载更多时跳过重复，防止服务端分页游标返回重叠数据导致列表出现重复
+        var existingIds = new HashSet<string>();
+        foreach (var item in Adapter.Data.List)
+        {
+            if (item != null && !string.IsNullOrEmpty(item.id))
+            {
+                existingIds.Add(item.id);
+            }
+        }
+
+        foreach (var item in tonePublishedDatas)
+        {
+            if (item == null)
+                continue;
+
+            // id 非空且已存在则视为重复，跳过；id 为空的条目原样追加
+            if (!string.IsNullOrEmpty(item.id) && existingIds.Contains(item.id))
+            {
+                LoggerUtils.Log($"[CabinUgcAnimUgcToneInfoPanel] 下拉加载更多时发现重复音色 id={item.id}，已跳过");
+                continue;
+            }
+
+            Adapter.Data.List.Add(item);
+
+            if (!string.IsNullOrEmpty(item.id))
+            {
+                existingIds.Add(item.id);
+            }
+        }
+
         Adapter.Refresh(false);
     }
 

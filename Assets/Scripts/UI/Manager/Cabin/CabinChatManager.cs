@@ -12,7 +12,6 @@ using UnityEngine;
 /// </summary>
 public class CabinChatManager : GlobalInstance<CabinChatManager>
 {
-    List<CabinChatCreateBotData> botDatas = new();
     /// <summary>
     /// 创建Bot流式聊天（/boxchat/createBot/stream）
     /// </summary>
@@ -35,30 +34,15 @@ public class CabinChatManager : GlobalInstance<CabinChatManager>
                 if (content == "[DONE]")
                 {
                     onReceive?.Invoke(null, true);
-                    //
-                    StringBuilder sb = new();
-                    for (int i = 0; i < botDatas.Count; i++)
-                    {
-                        try
-                        {
-                            sb.Append(botDatas[0].choices[0].delta.content);
-                        }
-                        catch (System.Exception e)
-                        {
-                        }
-                    }
-                    Debug.LogError(sb.ToString());
-                    botDatas.Clear();
-                    //
                     return;
                 }
+                // UnityEngine.Debug.LogError(content);
                 CabinChatCreateBotData data = null;
                 if (!string.IsNullOrEmpty(content))
                 {
                     try
                     {
                         data = JsonConvert.DeserializeObject<CabinChatCreateBotData>(content);
-                        botDatas.Add(data);
                     }
                     catch (System.Exception ex)
                     {
@@ -98,6 +82,7 @@ public class CabinChatManager : GlobalInstance<CabinChatManager>
                     onReceive?.Invoke(null, true);
                     return;
                 }
+
 
                 CabinChatCreateBotData data = JsonConvert.DeserializeObject<CabinChatCreateBotData>(content);
                 onReceive?.Invoke(data, false);
@@ -228,6 +213,26 @@ public class CabinChatManager : GlobalInstance<CabinChatManager>
             {
                 var data = JsonConvert.DeserializeObject<CabinChatTextHistory>(content);
                 onSuccess?.Invoke(data);
+            },
+            (error) => onFail?.Invoke(error)
+        );
+    }
+
+    /// <summary>
+    /// 随机生成角色扮演场景（/chat/aiCharacter/scene/random）
+    /// </summary>
+    public void GetAiCharacterSceneRandom(string deviceId, Action<AiCharacterSceneRandomResponse> onSuccess, Action<string> onFail = null)
+    {
+        var paramStr = JsonConvert.SerializeObject(new { deviceId });
+        NetworkManager.Inst.SendHttpRequest(
+            HttpUrlDefine.aiCharacterSceneRandom,
+            HttpMethod.POST,
+            paramStr,
+            (content) =>
+            {
+                var resp = JsonConvert.DeserializeObject<AiCharacterSceneRandomResponse>(content);
+                Debug.LogError(content);
+                onSuccess?.Invoke(resp);
             },
             (error) => onFail?.Invoke(error)
         );

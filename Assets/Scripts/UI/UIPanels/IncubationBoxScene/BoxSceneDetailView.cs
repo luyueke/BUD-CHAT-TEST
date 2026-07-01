@@ -420,7 +420,7 @@ namespace Game.IncubationBoxScene
         /// </summary>
         private void RefreshDraftsList()
         {
-            MessageHelper.Broadcast(MessageName.OnCabinDraftListChange);
+            MessageHelper.Broadcast(MessageName.OnCabinSceneDraftListChange);
         }
 
         /// <summary>
@@ -428,7 +428,7 @@ namespace Game.IncubationBoxScene
         /// </summary>
         private void RefreshPublishedList()
         {
-            MessageHelper.Broadcast(MessageName.OnCabinPublishListChange);
+            MessageHelper.Broadcast(MessageName.OnCabinScenePublishListChange);
         }
     }
 }

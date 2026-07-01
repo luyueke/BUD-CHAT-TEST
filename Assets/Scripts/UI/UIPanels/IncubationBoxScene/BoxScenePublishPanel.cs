@@ -67,7 +67,7 @@ namespace Game.IncubationBoxScene
         private const int PriceStep = 10;
 
         /// <summary>名称最大字符数</summary>
-        private const int NameMaxLength = 25;
+        private const int NameMaxLength = 30;
 
         /// <summary>描述最大字符数</summary>
         private const int DescMaxLength = 250;
@@ -590,7 +590,7 @@ namespace Game.IncubationBoxScene
         private void OnPublishSuccess()
         {
             LoggerUtils.Log($"[BoxScenePublishPanel] 发布成功，id={_boxInfo?.id}");
-            MessageHelper.Broadcast(MessageName.OnCabinPublishListChange);
+            MessageHelper.Broadcast(MessageName.OnCabinScenePublishListChange);
             _onSuccessCallback?.Invoke();
             CloseSelf();
         }

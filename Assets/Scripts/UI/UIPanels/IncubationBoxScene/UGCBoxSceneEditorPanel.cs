@@ -14,6 +14,7 @@ using GameData.UGCData;
 using Message;
 using Newtonsoft.Json;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UGCAsset;
 using UGCAsset.Draft;
@@ -84,6 +85,12 @@ public class UGCBoxSceneEditorPanel : UGCBaseEditorPanel<UGCBoxSceneEditorPanel>
 
     /// <summary>默认从第 1 面开始编辑（ugcType 从 1 起）。</summary>
     private int defaultUGCType = 1;
+
+    /// <summary>
+    /// 草稿进入时，等待各面图片异步加载完成后逐面重渲 finalRT 的协程句柄。
+    /// 面板隐藏 / 销毁时需停止，防止关闭后仍回调。
+    /// </summary>
+    private Coroutine _rebakeFacesCor;
 
     /// <summary>当前正在编辑的盒子场景元数据，对应 MaterialInfo 在材质编辑器中的角色。</summary>
     private BoxSceneInfo currentBoxSceneInfo;
@@ -433,6 +440,13 @@ public class UGCBoxSceneEditorPanel : UGCBaseEditorPanel<UGCBoxSceneEditorPanel>
         BoxLog($"切换到部件 {CurrentPartIndex}...");
         SwitchPart(CurrentPartIndex);
 
+        // 草稿（已有数据）进入时图片是异步加载的，init 循环里那次渲染早于图片到达，
+        // 导致除当前面外其它面的 finalRT 烤成空白。此处启动协程：等图片加载完成后逐面重烤。
+        if (currentClothesData?.parts is { Count: > 0 })
+        {
+            _rebakeFacesCor = StartCoroutine(RebakeAllFacesWhenLoaded());
+        }
+
         BoxLog("初始化截图相机模型...");
         InitCameraShotModel();
         BoxLog($"截图模型={shotModel != null}");
@@ -459,10 +473,37 @@ public class UGCBoxSceneEditorPanel : UGCBaseEditorPanel<UGCBoxSceneEditorPanel>
         BoxLog("OnShow 完成");
     }
 
+    /// <summary>
+    /// 重写复制按钮点击，为 CopySelectPartPanel 的 5 个面预加载固定 mask 描边贴图，
+    /// 使面选择界面上每个缩略图都能显示对应面的可编辑区域描边。
+    /// </summary>
+    protected override void OnCopyBtnClick()
+    {
+        var maskTextures = new List<Texture>();
+
+        for (int i = 1; i <= 5; i++)
+        {
+            var path = $"Assets/Loadable/Avatar/UGCRolePart/IconSprite/UGCBoxScene/UGCBreedingFarm_1/qiye_ugcBreedingFarm_1_{i}_mask{pngExt}";
+            var tex = Loader.Load<Texture>(path, this.gameObject);
+            maskTextures.Add(tex);
+        }
+
+        copyEditPanel.SelectPartPanel.OverrideMaskTextures = maskTextures;
+
+        base.OnCopyBtnClick();
+    }
+
     public override void OnHidden()
     {
         base.OnHidden();
         GameTimeUtils.Inst.StopCollect(TAG);
+
+        // 停止逐面重烤协程，防止面板关闭后仍回调
+        if (_rebakeFacesCor != null)
+        {
+            StopCoroutine(_rebakeFacesCor);
+            _rebakeFacesCor = null;
+        }
 
         // 面板关闭时解锁旋转，防止旋转锁定状态残留
         if (inputHandler != null)
@@ -537,6 +578,86 @@ public class UGCBoxSceneEditorPanel : UGCBaseEditorPanel<UGCBoxSceneEditorPanel>
 
         UGCImportPhotoManager.Inst.SetElementHandleCanUse(false);
         UGCImportTextManager.Inst.SetElementHandleCanUse(false);
+    }
+
+    /// <summary>
+    /// 草稿进入时各面图片为异步加载，InititalMapCanvas 中的首次渲染早于图片到达，
+    /// 致使除当前面外其它面的 finalRT 被烤成空白（要点击才显示）。
+    /// 本协程等待所有图片元素加载到终态后，逐面重新渲染一次 finalRT，
+    /// 把已加载的图片就地烤进各面材质，使 5 个面无需点击即可自动显示。
+    /// </summary>
+    private IEnumerator RebakeAllFacesWhenLoaded()
+    {
+        // 超时保护：避免存在 photoUrl 为空、loadState 永远停在 Loading 的元素导致死等。
+        // 约 5 秒（按 60 帧/秒折算为 300 帧），超时后照常重烤一遍。
+        const int maxWaitFrames = 300;
+        int waitedFrames = 0;
+
+        // 1. 等待所有图片元素加载完成（进入 Success / Error 终态）
+        while (waitedFrames < maxWaitFrames)
+        {
+            if (IsAllPhotosLoaded())
+            {
+                break;
+            }
+
+            waitedFrames++;
+            yield return null;
+        }
+
+        if (waitedFrames >= maxWaitFrames)
+        {
+            BoxLog("RebakeAllFacesWhenLoaded: 等待图片加载超时，仍执行重烤");
+        }
+
+        // 2. 逐面重烤：切到该面的元素可见性并把图片渲染进对应 finalRT
+        foreach (var kv in ugcPartTextureDatas)
+        {
+            int partIndex = kv.Key;
+            var texData = kv.Value;
+
+            // 切换该面元素可见性（与 init 循环、点击切面保持一致）
+            UGCImportPhotoManager.Inst.OnChangePart(partIndex);
+            UGCImportTextManager.Inst.OnChangePart(partIndex);
+
+            // 让画布与相机指向该面，触发一次渲染把图片烤进 finalRT
+            drawCanvas.SetRawImage(texData.mRT);
+            drawCanvas.SetTransparentMat(currentBoxSceneInfo.templateId, texData.mRT, texData.aRT);
+            SetFinalTargetTexture(texData.finalRT);
+        }
+
+        // 3. 恢复到当前正在编辑的面（重烤循环后元素可见性停在了最后一个面）
+        UGCImportPhotoManager.Inst.OnChangePart(CurrentPartIndex);
+        UGCImportTextManager.Inst.OnChangePart(CurrentPartIndex);
+        ShowSmallGenerateTexture(CurrentPartIndex);
+
+        BoxLog($"RebakeAllFacesWhenLoaded: 完成 {ugcPartTextureDatas.Count} 面重烤，已恢复到面 {CurrentPartIndex}");
+        _rebakeFacesCor = null;
+    }
+
+    /// <summary>
+    /// 判断当前所有图片元素是否都已加载到终态（Success 或 Error）。
+    /// 仅 Loading 状态视为未完成，None（无 photoUrl 等）不阻塞重烤。
+    /// </summary>
+    /// <returns>无元素或全部进入终态时返回 true。</returns>
+    private bool IsAllPhotosLoaded()
+    {
+        var elementList = UGCImportPhotoManager.Inst.GetElementList();
+
+        if (elementList == null || elementList.Count == 0)
+        {
+            return true;
+        }
+
+        for (int i = 0; i < elementList.Count; i++)
+        {
+            if (elementList[i] is UGCPhotoBehaviour photo && photo.loadState == TexLoadState.Loading)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -665,7 +786,12 @@ public class UGCBoxSceneEditorPanel : UGCBaseEditorPanel<UGCBoxSceneEditorPanel>
         commonConfirmPanel.SetOnClickAction(() =>
         {
             commonConfirmPanel.SetConfirmLoadingVisible(true);
-            UploadClothesData(() =>
+
+            // 走与 saveBtn 完全一致的完整保存流程（含 SetCharacterBox 写服务端记录）。
+            // 之前此处仅调用 UploadClothesData，只上传封面/元数据到 COS，未调用 SetCharacterBox，
+            // 且退出回调在上传完成前就被同步触发，导致退出时点"保存"实际并未保存上。
+            // 保存流程结束（成功或失败）后再退出。
+            SaveClothesData(() =>
             {
                 if (commonConfirmPanel != null && commonConfirmPanel.gameObject != null)
                 {
@@ -1375,6 +1501,14 @@ public class UGCBoxSceneEditorPanel : UGCBaseEditorPanel<UGCBoxSceneEditorPanel>
     protected override void OnDestroy()
     {
         base.OnDestroy();
+
+        // 停止逐面重烤协程，防止销毁后仍回调
+        if (_rebakeFacesCor != null)
+        {
+            StopCoroutine(_rebakeFacesCor);
+            _rebakeFacesCor = null;
+        }
+
         // 计算总时长（分钟）
         float totalTime = Time.time - startTime;
         float totalMinutes = totalTime / 60f;

@@ -14,47 +14,8 @@ using System.Collections.Generic;
 /// <summary>
 /// AI 伙伴盒子主数据模型，涵盖草稿与发布共用字段。
 /// </summary>
-public class CharacterBoxInfo
+public class CharacterBoxInfo :UgcBaseInfo
 {
-    /// <summary>唯一 ID</summary>
-    public string id;
-
-    /// <summary>名称</summary>
-    public string name;
-
-    /// <summary>描述</summary>
-    public string desc;
-
-    /// <summary>封面图 URL</summary>
-    public string cover;
-
-    /// <summary>基础元数据 URL</summary>
-    public string metaDataUrl;
-
-    /// <summary>创作者 uid</summary>
-    public string creator;
-
-    /// <summary>创建时间（毫秒时间戳）</summary>
-    public long createTime;
-
-    /// <summary>最后修改时间（毫秒时间戳）</summary>
-    public long updateTime;
-
-    /// <summary>模板 ID</summary>
-    public string templateId;
-
-    /// <summary>草稿版本号</summary>
-    public int draftVersion;
-
-    /// <summary>审核状态（auditResult / rejectReason）</summary>
-    public AuditStatus auditInfo;
-
-    /// <summary>设计码</summary>
-    public string designCode;
-
-    /// <summary>编辑时长（秒）</summary>
-    public int editTime;
-
     /// <summary>是否已删除：0=否，1=是</summary>
     public int isDelete;
 

@@ -43,6 +43,13 @@ namespace Game
         /// <summary>通讯录详情节点引用（AICompanionChatPanel 场景专用，可为 null）</summary>
         public ChatCallTXDetailNode chatCallTXDetailNode;
 
+        /// <summary>角色扮演按钮（可选，PorVideoCallNodePanel 场景使用）</summary>
+        [SerializeField] private Button btnRolePlay;
+        /// <summary>角色扮演按钮文字（"角色扮演" / "角色扮演中"）</summary>
+        [SerializeField] private Text txtRolePlay;
+        /// <summary>角色扮演配置面板（可选，默认 inactive）</summary>
+        [SerializeField] private CabinAiCharacterRolePlay rolePlayPanel;
+
         // ─── 外部注入回调（PorVideoCallNodePanel 场景使用）────────────────────
 
         /// <summary>点击小窗按钮时触发（不挂断通话，仅关闭界面）。为 null 时退回旧行为。</summary>
@@ -54,9 +61,14 @@ namespace Game
         /// <summary>通话结束（主动挂断或被动挂断）后触发。为 null 时退回旧行为。</summary>
         public Action onCallEnded;
 
+        /// <summary>角色扮演按钮触发通话挂断后触发，父层用于标记需要还原 BGM。</summary>
+        public Action onSwitchingToRolePlay;
+
         // ─── 私有状态 ─────────────────────────────────────────────────────────
 
         private CabinBudBoxData _box;
+        private CabinPublishData _character;
+        private bool _inRolePlay;
 
         // 计时器句柄
         private BudTimer _callTimer;           // 通话中每秒计时
@@ -73,6 +85,7 @@ namespace Game
         private float _connectStartTime;       // 进入连接状态的 Time.time，用于保证最少 3s 展示
         private int _dotCount;                 // "..." 动效当前点数（0-3）
 
+
         // ─── 入口 ────────────────────────────────────────────────────────────
 
         /// <summary>
@@ -82,8 +95,10 @@ namespace Game
         /// </summary>
         /// <param name="character">角色信息（头像、名称）</param>
         /// <param name="box">设备信息（MQTT 通信、音量等）</param>
-        public void Init(CabinPublishData character, CabinBudBoxData box)
+        public void Init(CabinPublishData character, CabinBudBoxData box, bool isRolePlay = false)
         {
+            _character = character;
+            _inRolePlay = isRolePlay;
             _box = CabinBoxManager.Inst.GetCabinBudBoxData(box.deviceId) ?? box;
             CabinBoxManager.Inst.SetActiveBox(_box);
 
@@ -115,13 +130,40 @@ namespace Game
             btnClose?.onClick.RemoveAllListeners();
             btnClose?.onClick.AddListener(OnMinimizeClick);
 
+            // 角色扮演按钮
+            if (btnRolePlay != null)
+            {
+                btnRolePlay.onClick.RemoveAllListeners();
+                btnRolePlay.onClick.AddListener(OnRolePlayBtn);
+                if (isRolePlay)
+                {
+                    if (txtRolePlay != null) txtRolePlay.text = "角色扮演中";
+                }
+                else
+                {
+                    if (txtRolePlay != null) txtRolePlay.text = "角色扮演";
+                }
+
+            }
+
+            // 角色扮演配置面板
+            if (rolePlayPanel != null)
+            {
+                rolePlayPanel.gameObject.SetActive(false);
+                rolePlayPanel.backAc = (isRolePlay) =>
+                {
+                    Init(_character, _box, isRolePlay);
+                    gameObject.SetActive(true);
+                };
+            }
+
             // 清理上一次残留
             StopAllTimers();
             RemoveAllCallListeners();
-            _isWaitingForAccept         = false;
-            _waitingForCallEnd          = false;
-            _dotCount                   = 0;
-            _isConnectingSoundPlaying   = false;
+            _isWaitingForAccept = false;
+            _waitingForCallEnd = false;
+            _dotCount = 0;
+            _isConnectingSoundPlaying = false;
 
             // 根据通话状态决定进入哪个阶段
             _callSeconds = _box.deviceState.callBeginTime > 0
@@ -149,10 +191,12 @@ namespace Game
             StopConnectingSound();
 
             _isWaitingForAccept = false;
-            _waitingForCallEnd  = false;
+            _waitingForCallEnd = false;
 
             if (slider_voice != null)
                 slider_voice.onValueChanged.RemoveAllListeners();
+
+            if (btnRolePlay != null) btnRolePlay.onClick.RemoveAllListeners();
         }
 
         // ─── 连接中状态 ──────────────────────────────────────────────────────
@@ -163,13 +207,10 @@ namespace Game
         private void EnterConnectingState()
         {
             _isWaitingForAccept = true;
-            _connectStartTime   = Time.time;
+            _connectStartTime = Time.time;
 
             if (txt_callTime != null)
-            {
-                txt_callTime.alignment = TextAnchor.MiddleLeft;
                 txt_callTime.text = "等待对方接受邀请";
-            }
 
             if (txt_shutdown != null)
                 txt_shutdown.text = "取消";
@@ -240,8 +281,8 @@ namespace Game
             MessageHelper.RemoveListener<string>(MessageName.OnBudBoxCallChange, OnCallAccepted);
 
             // 保证连接中状态至少展示 3s
-            float elapsed     = Time.time - _connectStartTime;
-            float minDelay    = Mathf.Max(0f, 3f - elapsed);
+            float elapsed = Time.time - _connectStartTime;
+            float minDelay = Mathf.Max(0f, 3f - elapsed);
 
             if (minDelay > 0f)
             {
@@ -358,7 +399,6 @@ namespace Game
 
             int m = _callSeconds / 60;
             int s = _callSeconds % 60;
-            txt_callTime.alignment = TextAnchor.MiddleCenter;
             txt_callTime.text = $"{m:D2}:{s:D2}";
         }
 
@@ -409,10 +449,10 @@ namespace Game
             var disconnectPanel = UIManager.Inst.OpenPanel<CommonBoxConfirmWithTitlePanel>(
                 PanelId.CommonBoxConfirmWithTitlePanel);
             disconnectPanel.SetTextAndAction(
-                titleText:    "连接断开",
-                contentText:  "设备已断开连接，通话已结束。",
-                confirmText:  "确定",
-                cancelText:   null,
+                titleText: "连接断开",
+                contentText: "设备已断开连接，通话已结束。",
+                confirmText: "确定",
+                cancelText: null,
                 confirmClick: () =>
                 {
                     if (onCallEnded != null)
@@ -420,7 +460,7 @@ namespace Game
                     else
                         gameObject.SetActive(false);
                 },
-                cancelClick:  null
+                cancelClick: null
             );
         }
 
@@ -452,6 +492,27 @@ namespace Game
                 if (chatCallTXDetailNode != null)
                     chatCallTXDetailNode.RefreshCallState();
             }
+        }
+
+        /// <summary>外部主动触发挂断（如角色扮演按钮），效果等同于用户点击结束按钮</summary>
+        public void RequestHangup() => CancelOrEndCall();
+
+        private void OnRolePlayBtn()
+        {
+            if (_inRolePlay) return;
+
+            onCallEnded = () =>
+            {
+                onSwitchingToRolePlay?.Invoke();
+                if (rolePlayPanel != null)
+                {
+                    rolePlayPanel.gameObject.SetActive(true);
+                    rolePlayPanel.SetData(_character, _box);
+                }
+                onCallEnded = null;
+            };
+
+            RequestHangup();
         }
 
         /// <summary>
@@ -587,7 +648,7 @@ namespace Game
         private void TestData()
         {
             var mockInfo = new CabinCharacterUgcInfo { name = "小雅", characterPortraitUrl = "", id = "mock" };
-            var mockBox  = new CabinBudBoxData("TEST-001") { deviceName = "我的BUD BOX" };
+            var mockBox = new CabinBudBoxData("TEST-001") { deviceName = "我的BUD BOX" };
             mockBox.deviceState.volume = 70;
             Init(new CabinPublishData(mockInfo), mockBox);
         }

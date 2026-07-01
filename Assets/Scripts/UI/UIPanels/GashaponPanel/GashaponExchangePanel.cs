@@ -43,8 +43,11 @@ public class GashaponExchangeParam
     public bool phantomVehicleOwnedDiscount;
     // 幻音派对扭蛋专属：panelInfoList 载具的 pgcId 列表，仅选中其中一项时才触发打折表现
     public List<string> phantomVehiclePgcIds;
-    // 幻音派对扭蛋专属：用户已点击过兑换 item，红点不再显示
-    public bool phantomExchangeRedDotSeen;
+    // 幻音派对扭蛋专属：已点击过(已读)的载具 pgcId 集合，集合内的载具不再显示红点
+    public HashSet<string> phantomExchangeSeenIds;
+    // 幻音派对扭蛋专属：兑换 item 的 Id→Level 映射，用于 GashaponPriceItem 背景色按等级变色
+    // (服务端 ExchangeData 不下发 Level，由客户端按 Id 写死)
+    public Dictionary<string, int> specialItemLevelMap;
 }
 
 public class ExchangeDataRsp
@@ -100,8 +103,12 @@ public class GashaponExchangePanel : BasePanel<GashaponExchangePanel>
     private bool _phantomVehicleOwnedDiscount = false;
     // 幻音派对：panelInfoList 载具 pgcId，仅选中其中一项时才显示 discount + 价格 5
     private List<string> _phantomVehiclePgcIds;
-    // 幻音派对：用户已点击过兑换 item，红点不再显示
-    private bool _phantomExchangeRedDotSeen = false;
+    // 幻音派对：已点击过(已读)的载具 pgcId 集合，集合内的载具不再显示红点
+    private HashSet<string> _phantomExchangeSeenIds;
+    // DefSpecialClickFirst 自动选中首项不算玩家点击，期间不持久化红点已读状态
+    private bool _suppressSpecialClickPersist = false;
+    // 幻音派对：兑换 item 的 Id→Level 映射，控制 SpecialItem 背景色
+    private Dictionary<string, int> _specialItemLevelMap;
     private const string PhantomVehicleDiscountPrice = "5";
 
     // 娃娃机多型号分组(大头 + 其变体)，仅 lottery.clawMachine 生效
@@ -127,7 +134,7 @@ public class GashaponExchangePanel : BasePanel<GashaponExchangePanel>
     private string _curVideoPath;
 
     public Action onCloseCallback;
-    public Action onSpecialItemClicked;
+    public Action<string> onSpecialItemClicked;
     public override void OnCreate()
     {
         BackBtn.onClick.AddListener(OnBackBtnClick);
@@ -158,7 +165,8 @@ public class GashaponExchangePanel : BasePanel<GashaponExchangePanel>
             _isPhantomSoundParty = param.isPhantomSoundParty;
             _phantomVehicleOwnedDiscount = param.isPhantomSoundParty && param.phantomVehicleOwnedDiscount;
             _phantomVehiclePgcIds = param.phantomVehiclePgcIds;
-            _phantomExchangeRedDotSeen = param.phantomExchangeRedDotSeen;
+            _phantomExchangeSeenIds = param.phantomExchangeSeenIds;
+            _specialItemLevelMap = param.specialItemLevelMap;
             // 初始隐藏：仅当选中 panelInfoList 载具项时才由 SelectExchangeData/OnItemClick 打开
             if (discount != null) discount.SetActive(false);
             LeftRoot.gameObject.SetActive(!param.isSpecialRoot);
@@ -271,20 +279,37 @@ public class GashaponExchangePanel : BasePanel<GashaponExchangePanel>
                     PgcDatas = exchangeData.PgcDatas,
                     Name = exchangeData.Name,
                 };
+                // 兑换 item 背景色按等级取色：服务端 ExchangeData 无 Level，用写死的 Id→Level 映射
+                if (_specialItemLevelMap != null
+                    && _specialItemLevelMap.TryGetValue(exchangeData.Id, out var lv))
+                {
+                    rewardData.Level = (Product.Level)lv;
+                }
                 var item = Instantiate(SpecialItemPrefab, content.transform);
                 item.Init(rewardData, OnSpecialItemClick);
-                bool showRedDot = _phantomVehicleOwnedDiscount
-                    && !_phantomExchangeRedDotSeen
-                    && _phantomVehiclePgcIds != null
-                    && _phantomVehiclePgcIds.Contains(exchangeData.Id)
-                    && !GashaponUtils.IsOwnedReward(exchangeData);
-                item.SetRedDotVisible(showRedDot);
                 specialItems.Add(item);
                 _specialDataList.Add(exchangeData);
             }
         }
+        RefreshSpecialRedDots();
         if (specialItems.Count > 0)
             Invoke("DefSpecialClickFirst", 0.2f);
+    }
+
+    // 按"折扣态 + panelInfoList 载具 + 未拥有 + 未点击过(已读)"逐项刷新红点。
+    // 抽离成方法：自动选中首项(GashaponPriceItem.OnItemClick 会强制隐藏自身红点)后可调用本方法还原各项正确状态。
+    private void RefreshSpecialRedDots()
+    {
+        for (int i = 0; i < specialItems.Count && i < _specialDataList.Count; i++)
+        {
+            var data = _specialDataList[i];
+            bool showRedDot = _phantomVehicleOwnedDiscount
+                && _phantomVehiclePgcIds != null
+                && _phantomVehiclePgcIds.Contains(data.Id)
+                && !GashaponUtils.IsOwnedReward(data)
+                && (_phantomExchangeSeenIds == null || !_phantomExchangeSeenIds.Contains(data.Id));
+            specialItems[i].SetRedDotVisible(showRedDot);
+        }
     }
 
     // 兑换列表按策划指定的固定顺序排序，未在配置中的 id 排到末尾并保持原有相对顺序。
@@ -312,7 +337,14 @@ public class GashaponExchangePanel : BasePanel<GashaponExchangePanel>
     private void DefSpecialClickFirst()
     {
         if (specialItems.Count > 0)
+        {
+            // 自动选中首项不算玩家点击：期间不持久化红点已读；选中后还原各项红点
+            // (OnItemClick 会强制隐藏首项自身红点，需 RefreshSpecialRedDots 还原其"待点击"状态)
+            _suppressSpecialClickPersist = true;
             specialItems[0].OnItemClick();
+            _suppressSpecialClickPersist = false;
+            RefreshSpecialRedDots();
+        }
 
         RectTransform rectTransform = SpecialContent.GetComponent<RectTransform>();
         VerticalLayoutGroup verticalLayoutGroup = SpecialContent.GetComponent<VerticalLayoutGroup>();
@@ -332,7 +364,15 @@ public class GashaponExchangePanel : BasePanel<GashaponExchangePanel>
         foreach (var si in specialItems) si.SetSelectStatus(false);
         item.SetSelectStatus(true);
         // MutipleTypeView 的显隐与分组同步已统一在 SelectExchangeData 内处理
-        onSpecialItemClicked?.Invoke();
+        // 仅当玩家真正点击 panelInfoList 载具时，才把该载具红点标记为已读(自动选中首项不持久化)。
+        // GashaponPriceItem.OnItemClick 已隐藏自身红点，这里只负责持久化与通知外部。
+        if (!_suppressSpecialClickPersist
+            && _phantomVehiclePgcIds != null
+            && _phantomVehiclePgcIds.Contains(exchangeData.Id))
+        {
+            _phantomExchangeSeenIds?.Add(exchangeData.Id);
+            onSpecialItemClicked?.Invoke(exchangeData.Id);
+        }
     }
 
     // 仅娃娃机(lottery.clawMachine)显示多型号切换视图，其它扭蛋隐藏

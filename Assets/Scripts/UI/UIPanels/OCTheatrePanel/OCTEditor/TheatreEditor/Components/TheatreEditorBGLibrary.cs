@@ -10,6 +10,8 @@ public class TheatreEditorBGLibrary : MonoBehaviour
     [SerializeField] private Button editBtn;
     [SerializeField] private Button deleteBtn;
     [SerializeField] private ScrollRect scrollRect;
+    [SerializeField] private Toggle tog_my;
+    [SerializeField] private Toggle tog_pgc;
 
     private TheatreEditorDataCenter dataCenter;
     private readonly List<TheatreEditorBGItem> bgItems = new();
@@ -17,6 +19,13 @@ public class TheatreEditorBGLibrary : MonoBehaviour
     private int _lastBgCount = 0;
 
     private const string RemoteFolderBase = "UgcOCTheatreBG";
+    private const string DefImagePath = "Assets/Loadable/UI/UIPanel/OCTheatrePanel/TheatreDefaultBG/";
+
+    private static readonly string[] DefBgNames =
+    {
+        "车站", "废弃医院", "审讯室", "路口", "废弃小屋", "便利店", "海边",
+        "小屋", "公园", "天台", "餐馆", "停车场", "客厅", "小院"
+    };
 
     public void Init(TheatreEditorDataCenter dc)
     {
@@ -31,8 +40,34 @@ public class TheatreEditorBGLibrary : MonoBehaviour
         deleteBtn?.onClick.RemoveAllListeners();
         deleteBtn?.onClick.AddListener(OnDeleteClicked);
 
+        if (tog_my != null)
+        {
+            tog_my.onValueChanged.RemoveListener(OnMyToggleChanged);
+            tog_my.onValueChanged.AddListener(OnMyToggleChanged);
+        }
+        if (tog_pgc != null)
+        {
+            tog_pgc.onValueChanged.RemoveListener(OnPgcToggleChanged);
+            tog_pgc.onValueChanged.AddListener(OnPgcToggleChanged);
+        }
+
+        // 默认开启 tog_my
+        if (tog_my != null) tog_my.isOn = true;
+
         RefreshList();
     }
+
+    private void OnMyToggleChanged(bool isOn)
+    {
+        if (isOn) RefreshList();
+    }
+
+    private void OnPgcToggleChanged(bool isOn)
+    {
+        if (isOn) RefreshList();
+    }
+
+    private bool IsPgcMode => tog_pgc != null && tog_pgc.isOn;
 
     private void RefreshList()
     {
@@ -43,15 +78,23 @@ public class TheatreEditorBGLibrary : MonoBehaviour
         deleteBtn?.gameObject.SetActive(false);
         if (dataCenter == null || bgListRoot == null || bgItemPrefab == null) return;
 
-        string folder = $"{RemoteFolderBase}/{AccountDataManager.Inst.Uid}";
-
-        for (int i = 0; i < dataCenter.AllBackgrounds.Count; i++)
+        if (IsPgcMode)
         {
-            var obj = Instantiate(bgItemPrefab, bgListRoot);
-            var item = obj.GetComponent<TheatreEditorBGItem>();
-            item?.InitAsFilled(dataCenter.AllBackgrounds[i]);
-            bgItems.Add(item);
+            // tog_pgc：加载内置默认背景
+            editBtn?.gameObject.SetActive(false);
+            for (int i = 0; i < DefBgNames.Length; i++)
+            {
+                var obj = Instantiate(bgItemPrefab, bgListRoot);
+                var item = obj.GetComponent<TheatreEditorBGItem>();
+                item?.InitAsDef($"{DefImagePath}TheatreDefaultBG{i}.png", DefBgNames[i]);
+                bgItems.Add(item);
+            }
+            return;
         }
+
+        // tog_my：加载用户自己的背景
+        editBtn?.gameObject.SetActive(true);
+        string folder = $"{RemoteFolderBase}/{AccountDataManager.Inst.Uid}";
 
         if (dataCenter.AllBackgrounds.Count < TheatreEditorDataCenter.MaxBackgroundCount)
         {
@@ -60,8 +103,15 @@ public class TheatreEditorBGLibrary : MonoBehaviour
             item?.InitAsEmpty(folder, url => dataCenter.AddBackground(url));
             bgItems.Add(item);
         }
+        for (int i = 0; i < dataCenter.AllBackgrounds.Count; i++)
+        {
+            var obj = Instantiate(bgItemPrefab, bgListRoot);
+            var item = obj.GetComponent<TheatreEditorBGItem>();
+            item?.InitAsFilled(dataCenter.AllBackgrounds[i]);
+            bgItems.Add(item);
+        }
 
-        if (newItemAdded && scrollRect != null)
+        if (newItemAdded && scrollRect != null && gameObject.activeInHierarchy)
             StartCoroutine(ScrollToBottomNextFrame());
     }
 

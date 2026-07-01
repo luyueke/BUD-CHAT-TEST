@@ -69,6 +69,17 @@ public class AIBuddyOptionPanel : BasePanel<AIBuddyOptionPanel>
         if (Tog_VehicleAIBuddy != null)
             Tog_VehicleAIBuddy.onValueChanged.AddListener(OnVehicleAIBuddyChange);
         animMISource.SetCallback(OnValueChange);
+        // skinConfirmBtn/skinEmptyTip are children of pgcEmoteView in the prefab; reparent so pgcEmoteView.SetActive(false) in the skin tab doesn't hide them.
+        if (skinConfirmBtn != null && skinScrollRect != null)
+        {
+            skinConfirmBtn.transform.SetParent(skinScrollRect.transform.parent, true);
+            skinConfirmBtn.gameObject.SetActive(false);
+        }
+        if (skinEmptyTip != null && skinScrollRect != null)
+        {
+            skinEmptyTip.transform.SetParent(skinScrollRect.transform.parent, true);
+            skinEmptyTip.gameObject.SetActive(false);
+        }
     }
 
     public override void OnShow(params object[] args)
@@ -113,6 +124,10 @@ public class AIBuddyOptionPanel : BasePanel<AIBuddyOptionPanel>
         tog_container.SetActive(!isAIGame);
         // 地图共享 buddy 模式隐藏换装页（换装逻辑硬绑本人 buddy）
         Tog_ChangeBuddyCloths.gameObject.SetActive(!isMapBuddy);
+        // AIBuddyInMap 不支持牵手和乘坐载具，隐藏对应 tab
+        Tog_LinkAIBuddy.gameObject.SetActive(!isMapBuddy);
+        if (Tog_VehicleAIBuddy != null)
+            Tog_VehicleAIBuddy.gameObject.SetActive(!isMapBuddy);
         if (vehicleView != null)
             vehicleView.gameObject.SetActive(false);
     }
@@ -143,6 +158,12 @@ public class AIBuddyOptionPanel : BasePanel<AIBuddyOptionPanel>
         ugcEmoteView.gameObject.SetActive(source != MISource.Source.Bud);
         ugcEmoteView.resMISource.gameObject.SetActive(source != MISource.Source.Bud);
         ugcEmoteView.SetDefaultMISource();
+        // emoContent 中的 PGC item 不在 pgcEmoteView 层级下，需手动同步：
+        // 切 UGC 时隐藏所有 PGC item；切回 PGC 时重建列表（否则 PGC item 遮挡 UGC 视图 / PGC 页空白）
+        if (source != MISource.Source.Bud)
+            SetAllItemUnActive();
+        else
+            ShowEmoConent();
     }
 
 

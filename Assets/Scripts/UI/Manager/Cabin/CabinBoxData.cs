@@ -153,6 +153,8 @@ namespace Game.BudBox
         /// <summary>自动熄屏时间（分钟）</summary>
         public int protectScreenAuto;
 
+        public string customDataStr;
+
     }
 
 

@@ -153,6 +153,9 @@ namespace UI.UIPanels.IncubationCabin
             SyncingTextGo.SetActive(true);
             CabinBoxManager.Inst.SetCharacterUseSkin(skinPack);
             CabinBoxManager.Inst.SendMqttMessage(MqttMsgOperType.set_character);
+
+            // 切换皮肤交互埋点：用户点击「同步角色」确认应用时上报
+            IncubationCabinControll.ReportThinkingData("switch_skin");
         }
 
         /// <summary>
@@ -170,6 +173,14 @@ namespace UI.UIPanels.IncubationCabin
             // 切换到"展示中"状态，表示皮肤已成功同步到设备
             SyncingTextGo.SetActive(false);
             ShowingTextGo.SetActive(true);
+
+            // 皮肤同步确认后，广播角色变更，通知列表面板刷新对应 Item 模型
+            string deviceId = CabinBoxManager.Inst.GetCurrentDeviceId();
+
+            if (string.IsNullOrEmpty(deviceId))
+                return;
+
+            MessageHelper.Broadcast<string>(MessageName.OnBoxCharacterChanged, deviceId);
         }
 
         #endregion

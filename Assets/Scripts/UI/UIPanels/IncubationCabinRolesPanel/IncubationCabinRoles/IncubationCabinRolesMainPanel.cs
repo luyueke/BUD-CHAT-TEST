@@ -41,6 +41,7 @@ namespace UI.UIPanels.IncubationCabin
         private Text _RightBottomText;     // 右下角按钮文本
         private Button _RightTopBtn;       // 右上角按钮：浏览模式时显示，点击跳转草稿箱
         private System.Action<CabinCharacterBaseInfo, System.Action<bool>> _onImportCallback;     // 导入模式回调（第二个参数为完成回调：true=成功，false=失败），null 表示浏览模式
+        private string _importBtnText = "确认导入";   // 导入按钮文本，外部可通过 OnShow 第二个参数覆盖，默认"确认导入"
         private CabinPublishData _selectedPublishData;               // 当前选中的发布数据
         private CabinCharacterBaseInfo _selectedData;                // 当前选中的角色数据（供导入回调使用）
 
@@ -124,11 +125,18 @@ namespace UI.UIPanels.IncubationCabin
             _onImportCallback = null;
             _selectedPublishData = null;
             _selectedData = null;
+            _importBtnText = "确认导入";   // 每次打开恢复默认文本，避免残留上一次的自定义值
 
             // 若外部传入导入回调则进入导入模式
             if (args != null && args.Length > 0 && args[0] is System.Action<CabinCharacterBaseInfo, System.Action<bool>> callback)
             {
                 _onImportCallback = callback;
+            }
+
+            // 第二个参数（可选）用于自定义导入按钮文本，为空则保持默认"确认导入"
+            if (args != null && args.Length > 1 && args[1] is string importBtnText && !string.IsNullOrEmpty(importBtnText))
+            {
+                _importBtnText = importBtnText;
             }
 
             if (CreatAiBtn != null)
@@ -462,21 +470,37 @@ namespace UI.UIPanels.IncubationCabin
 
         /// <summary>
         /// 根据当前模式刷新右侧两个按钮的显示：
-        /// 导入模式显示右下角"确认导入"按钮；浏览模式显示右上角草稿箱按钮。
+        /// 导入模式下，当前页签有数据时显示右下角"确认导入"，空列表时按页签显示"获取更多/前往创作"引导入口；
+        /// 浏览模式右下角按钮始终隐藏，显示右上角草稿箱按钮。
         /// </summary>
         private void RefreshModeBtns()
         {
             bool isImportMode = _onImportCallback != null;
+            // 当前页签是否无数据，口径与 Obj_Default 判空一致（均基于已累积的原始列表）
+            bool isEmpty = (_cachedRawList?.Count ?? 0) == 0;
 
-            // 右下角按钮：仅导入模式显示"确认导入"
+            // 右下角按钮：三态——浏览模式隐藏 / 导入模式有数据显示"确认导入" / 导入模式空列表显示引导入口
             if (_RightBottomBtn != null)
             {
+                // 每次重新配置前清空旧监听，避免切页签后监听叠加
                 _RightBottomBtn.onClick.RemoveAllListeners();
-                _RightBottomBtn.gameObject.SetActive(isImportMode);
-                if (isImportMode)
+
+                if (!isImportMode)
                 {
-                    _RightBottomText.text = "确认导入";
+                    // 浏览模式：右下角按钮始终隐藏（保持原行为）
+                    _RightBottomBtn.gameObject.SetActive(false);
+                }
+                else if (!isEmpty)
+                {
+                    // 导入模式 + 有数据：确认导入（原逻辑）
+                    _RightBottomBtn.gameObject.SetActive(true);
+                    _RightBottomText.text = _importBtnText;
                     _RightBottomBtn.onClick.AddListener(OnImportBtnClicked);
+                }
+                else
+                {
+                    // 导入模式 + 当前页签空列表：按页签显示获取/创作入口
+                    ConfigEmptyStateBtn();
                 }
             }
 
@@ -490,6 +514,66 @@ namespace UI.UIPanels.IncubationCabin
             {
                 _chatBtn.gameObject.SetActive(!isImportMode);
             }
+        }
+
+        /// <summary>
+        /// 导入模式下当前页签空列表时，按页签配置右下角按钮的文本与跳转。
+        /// 全部/社区购买显示"获取更多"，我创作的显示"前往创作"，官方等其它页签隐藏按钮。
+        /// 调用前 RefreshModeBtns 已执行 RemoveAllListeners，此处仅负责设置可见性、文本与新监听。
+        /// </summary>
+        private void ConfigEmptyStateBtn()
+        {
+            switch (_currentType)
+            {
+                case CabinPurchasedType.All:
+                    _RightBottomBtn.gameObject.SetActive(true);
+                    _RightBottomText.text = "获取更多";
+                    _RightBottomBtn.onClick.AddListener(OnGetMoreClick);
+                    break;
+
+                case CabinPurchasedType.Published:
+                    _RightBottomBtn.gameObject.SetActive(true);
+                    _RightBottomText.text = "前往创作";
+                    _RightBottomBtn.onClick.AddListener(OnGoCreateClick);
+                    break;
+
+                case CabinPurchasedType.UGCShop:
+                    _RightBottomBtn.gameObject.SetActive(true);
+                    _RightBottomText.text = "获取更多";
+                    _RightBottomBtn.onClick.AddListener(OnGoCommunityShopClick);
+                    break;
+
+                default:
+                    // 官方(PGCShop)等页签：不显示右下角按钮
+                    _RightBottomBtn.gameObject.SetActive(false);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// 「前往创作」（我创作的页签空列表）：打开草稿箱面板，其列表首个"新建"卡为角色创建入口。
+        /// </summary>
+        private void OnGoCreateClick()
+        {
+            UIManager.Inst.OpenPanel(PanelId.IncubationCabinDraftBox);
+        }
+
+        /// <summary>
+        /// 「获取更多」（社区购买页签空列表）：打开社区商城并定位到 AI伙伴页签。
+        /// </summary>
+        private void OnGoCommunityShopClick()
+        {
+            UIManager.Inst.OpenPanel(PanelId.AIPartnerShopPanel, AIPartnerTabSecond.AICharacter);
+        }
+
+        /// <summary>
+        /// 「获取更多」（全部页签空列表）：官方商城扭蛋入口。
+        /// 暂未接入扭蛋系统，当前先跳转社区商城 AI伙伴页。
+        /// </summary>
+        private void OnGetMoreClick()
+        {
+            // TODO: 后续接入官方商城扭蛋（GashaponPanel）入口，当前暂跳转社区商城 AI伙伴页
+            UIManager.Inst.OpenPanel(PanelId.AIPartnerShopPanel, AIPartnerTabSecond.AICharacter);
         }
 
         /// <summary>
@@ -509,6 +593,9 @@ namespace UI.UIPanels.IncubationCabin
             {
                 return;
             }
+
+            // 切换角色交互埋点：用户点击确认导入、真正执行切换时上报
+            IncubationCabinControll.ReportThinkingData("switch_character");
 
             var loadingPanel = UIManager.Inst.OpenPanel<CommonLoadingPanel>(PanelId.CommonBoxLoadingPanel);
             loadingPanel.SetLocalText("导入中", "");

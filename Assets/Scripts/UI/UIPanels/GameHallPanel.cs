@@ -49,7 +49,6 @@ using System.Reflection;
 using Game.Vehicle.PGCVehicle;
 using UI.Manager;
 using System.IO;
-using Sirenix.OdinInspector;
 /// <summary>
 /// Author:
 /// Desc:
@@ -2093,18 +2092,6 @@ public class GameHallPanel : BasePanel<GameHallPanel>
             PlayerPrefs.SetInt("FirstOpenBreakIceNew" + AccountDataManager.Inst.Uid, 1);
             PlayerPrefs.Save();
         }
-        
-    }
-
-    [Button("测试ai币")]
-    void testAI()
-    {
-        AccountDataManager.Inst.BalanceInfo.AiCredit ??=new();
-        AccountDataManager.Inst.BalanceInfo.AiCredit.permanentAmount=0;
-        AccountDataManager.Inst.BalanceInfo.AiCredit.expiringAmount=0;
-        AccountDataManager.Inst.BalanceInfo.AiCredit.dailyAmount=0;
-        AccountDataManager.Inst.BalanceInfo.AiCredit.cloneAmount=2;
-            MessageHelper.Broadcast(MessageName.OnAICreditChange);
         
     }
 }

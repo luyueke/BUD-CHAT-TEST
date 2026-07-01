@@ -12,6 +12,8 @@ public class TheatreEditorBGItem : MonoBehaviour
     [SerializeField] private GameObject hintObj;
     [SerializeField] private USwitchToggle beSelectedToggle;
     [SerializeField] private GameObject loadingObj;
+    [SerializeField] private GameObject img_name;
+    [SerializeField] private Text txt_name;
 
     private string remoteFolder;
     private Action<string> onUploadSuccess;
@@ -31,6 +33,7 @@ public class TheatreEditorBGItem : MonoBehaviour
         selectBtn?.onClick.RemoveAllListeners();
         selectBtn?.onClick.AddListener(OnUploadClicked);
 
+        SetName(null);
         SetDisplayUrl(null);
 
         beSelectedToggle?.Init();
@@ -50,7 +53,23 @@ public class TheatreEditorBGItem : MonoBehaviour
         isFilled = true;
         selectBtn?.onClick.RemoveAllListeners();
 
+        SetName(null);
         SetDisplayUrl(url);
+
+        beSelectedToggle?.Init();
+        if (beSelectedToggle != null) beSelectedToggle.isOn = false;
+        beSelectedToggle?.gameObject.SetActive(false);
+        SetLoading(false);
+    }
+
+    
+    public void InitAsDef(string localPath, string name = null)
+    {
+        isFilled = false;
+        selectBtn?.onClick.RemoveAllListeners();
+
+        SetName(name);
+        SetDisplayUrl(localPath);
 
         beSelectedToggle?.Init();
         if (beSelectedToggle != null) beSelectedToggle.isOn = false;
@@ -65,6 +84,17 @@ public class TheatreEditorBGItem : MonoBehaviour
 
         if (!editMode && beSelectedToggle != null)
             beSelectedToggle.isOn = false;
+    }
+
+    private void SetName(string name)
+    {
+        bool hasName = !string.IsNullOrEmpty(name);
+        if (img_name != null) img_name.SetActive(hasName);
+        if (txt_name != null)
+        {
+            txt_name.gameObject.SetActive(hasName);
+            if (hasName) txt_name.text = name;
+        }
     }
 
     private void SetDisplayUrl(string url)

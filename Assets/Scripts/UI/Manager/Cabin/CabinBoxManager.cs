@@ -683,6 +683,11 @@ public class CabinBoxManager : GlobalInstance<CabinBoxManager>
             JsonConvert.SerializeObject(req),
             rspStr =>
             {
+
+                var dict = new Dictionary<string, object>();
+                dict.Add("box_device_id", deviceId);
+                AnalyticsManager.Inst.UserSet(dict);  //上报用户属性 BOX的设备ID
+
                 LoggerUtils.Log($"[CabinBoxManager] 绑定 Box 成功: deviceId={deviceId}");
                 callback?.Invoke(true);
             },
@@ -1572,7 +1577,8 @@ public class CabinBoxManager : GlobalInstance<CabinBoxManager>
 
     /// <summary>将指定类型的数据通过 MQTT 同步到 Box 硬件</summary>
     /// <param name="textID">play_voiceCmd 专用：要播放的口令语音包 ID</param>
-    public void SendMqttMessage(MqttMsgOperType mqttMsgOperType, UpgradeBoxType upgradeType = UpgradeBoxType.APK, string deviceId = "", string textID = "")
+    /// customDataStr 自定义数据
+    public void SendMqttMessage(MqttMsgOperType mqttMsgOperType, UpgradeBoxType upgradeType = UpgradeBoxType.APK, string deviceId = "", string textID = "",string customDataStr = "")
     {
         if (!IsConnected)
         {
@@ -1621,6 +1627,7 @@ public class CabinBoxManager : GlobalInstance<CabinBoxManager>
             case MqttMsgOperType.set_call:
                 reported.call = boxData.deviceState.call;
                 reported.callBeginTime = boxData.deviceState.callBeginTime;
+                reported.customDataStr = customDataStr;
                 break;
             case MqttMsgOperType.set_souceOff:
                 reported.isMute = boxData.deviceState.souceOff;

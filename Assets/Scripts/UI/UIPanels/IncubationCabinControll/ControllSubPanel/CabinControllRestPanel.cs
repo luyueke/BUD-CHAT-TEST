@@ -1,6 +1,7 @@
 using Game.BudBox;
 using Message;
 using System.Collections.Generic;
+using UI.UIPanels.IncubationCabin; // 交互埋点上报方法 IncubationCabinControll.ReportThinkingData
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -75,6 +76,8 @@ public class CabinControllRestPanel : CabinControllSettleSubPanel
         {
             if (isSuccess)
             {
+                // 恢复出厂设置交互埋点：三级确认通过、真正下发 start_rest 时上报
+                IncubationCabinControll.ReportThinkingData("factory_reset");
                 CabinBoxManager.Inst.SendMqttMessage(MqttMsgOperType.start_rest);
             }
             else

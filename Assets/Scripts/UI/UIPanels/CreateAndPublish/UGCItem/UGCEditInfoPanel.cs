@@ -310,6 +310,16 @@ public class UGCEditInfoPanel : BasePanel<UGCEditInfoPanel>
             updateHeadUrl = HttpUrlDefine.CabinCharacterSet;
             reqParam = JsonConvert.SerializeObject(req);
         }
+        else if(_ugcBaseInfo is CharacterBoxInfo)
+        {
+            var actorReq = new CharacterBoxSetRequestData()
+            {
+                characterBoxInfo = (CharacterBoxInfo)_ugcBaseInfo,
+                setType = SetType.Update
+            };
+            updateHeadUrl = HttpUrlDefine.CharacterBoxSet;
+            reqParam = JsonConvert.SerializeObject(actorReq);
+        }
 
         NetworkManager.Inst.SendHttpRequest(updateHeadUrl, HttpMethod.POST, reqParam, (content) =>
         {

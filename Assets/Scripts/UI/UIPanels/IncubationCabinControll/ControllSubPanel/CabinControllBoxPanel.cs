@@ -360,6 +360,9 @@ namespace UI.UIPanels.IncubationCabin
             int currentScreen = CabinBoxManager.Inst.GetScreen();
             int targetScreen = currentScreen == 1 ? 0 : 1;
 
+            // 手动亮/熄屏交互埋点：依据目标状态二选一（0=熄屏，1=亮屏）
+            IncubationCabinControll.ReportThinkingData(targetScreen == 0 ? "screen_off_manual" : "screen_on_manual");
+
             // 先更新本地状态，立即广播刷新UI（乐观更新），再下发 MQTT 指令
             CabinBoxManager.Inst.SetScreen(targetScreen);
             MessageHelper.Broadcast<string>(MessageName.OnBudBoxScreenChange, CabinBoxManager.Inst.GetCurrentDeviceId());

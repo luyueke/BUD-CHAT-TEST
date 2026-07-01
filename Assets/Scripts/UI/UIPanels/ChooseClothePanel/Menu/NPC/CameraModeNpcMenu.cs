@@ -69,6 +69,7 @@ public class CameraModeNpcMenu : CameraModeMenuBase
     private CabinSkinCardItem _equippedSkinCard;
 
     private bool _vehicleStarted;
+    private Text _confirmBuddyBtnLabel;
 
     protected override void OnInit(){
         single_toggle = GetComponentByName<CameraModeToggle>("ToggleSingle");
@@ -88,7 +89,11 @@ public class CameraModeNpcMenu : CameraModeMenuBase
         if (skin_toggle != null) skin_toggle.onValueChanged.AddListener(OnSkinChange);
         if (vehicle_toggle != null) vehicle_toggle.onValueChanged.AddListener(OnVehicleChange);
 
-        if (confirmBuddyBtn != null) confirmBuddyBtn.onClick.AddListener(OnConfirmBuddyClick);
+        if (confirmBuddyBtn != null)
+        {
+            confirmBuddyBtn.onClick.AddListener(OnConfirmBuddyClick);
+            _confirmBuddyBtnLabel = confirmBuddyBtn.GetComponentInChildren<Text>(true);
+        }
         if (confirmSkinBtn != null) confirmSkinBtn.onClick.AddListener(OnSkinConfirmClick);
 
         // Prefab 里有 2 个 MISource：`MISourceRoot`(主切换) 和 `SecondMISourceRoot`(UGC 内部 resMISource)
@@ -142,10 +147,10 @@ public class CameraModeNpcMenu : CameraModeMenuBase
             return;
         }
 
-        // 已召唤：single 已隐藏；若之前停留在 single 则切到双人动作，否则刷新当前选中页
+        // 已召唤：single 保留可见；若停留在 single 则刷新召唤页，否则刷新当前选中页
         if (single_toggle != null && single_toggle.isOn)
         {
-            if (double_toggle != null) double_toggle.isOn = true;
+            OnSingleChange(true);
         }
         else if (double_toggle != null && double_toggle.isOn) OnDoubleChange(true);
         else if (link_toggle != null && link_toggle.isOn) OnLinkChange(true);
@@ -159,11 +164,11 @@ public class CameraModeNpcMenu : CameraModeMenuBase
 
     }
 
-    /// <summary>未召唤只显示 single；已召唤隐藏 single、显示双人/牵手/换装/载具。</summary>
+    /// <summary>single 始终显示；其余 Toggle 仅已召唤时显示。</summary>
     private void RefreshToggleVisibility()
     {
         bool hasBuddy = AIBuddyAvatarController.Inst.SelfController != null;
-        if (single_toggle != null) single_toggle.gameObject.SetActive(!hasBuddy);
+        if (single_toggle != null) single_toggle.gameObject.SetActive(true);
         if (double_toggle != null) double_toggle.gameObject.SetActive(hasBuddy);
         if (link_toggle != null) link_toggle.gameObject.SetActive(hasBuddy);
         if (skin_toggle != null) skin_toggle.gameObject.SetActive(hasBuddy);
@@ -197,6 +202,15 @@ public class CameraModeNpcMenu : CameraModeMenuBase
 
     // ──────────────── 召唤（single） ────────────────
 
+    private void RefreshConfirmBuddyBtn()
+    {
+        bool isDismiss = _selectedCallInfo != null
+            && AIBoxBuddyCallPanel.CurrentSummonedInfo != null
+            && _selectedCallInfo.id == AIBoxBuddyCallPanel.CurrentSummonedInfo.id;
+        if (_confirmBuddyBtnLabel != null)
+            _confirmBuddyBtnLabel.text = isDismiss ? "解除" : "召唤";
+    }
+
     private void OnSingleChange(bool isOn){
         if (!isOn) return;
 
@@ -222,6 +236,7 @@ public class CameraModeNpcMenu : CameraModeMenuBase
             if (buddyCallScrollRect != null) buddyCallScrollRect.gameObject.SetActive(true);
             FetchCallList();
         }
+        RefreshConfirmBuddyBtn();
     }
 
     private void FetchCallList()
@@ -246,6 +261,10 @@ public class CameraModeNpcMenu : CameraModeMenuBase
         if (aiBuddyItemPrefab == null || buddyCallScrollRect == null) return;
         aiBuddyItemPrefab.SetActive(false);
 
+        var summonedId = AIBoxBuddyCallPanel.CurrentSummonedInfo?.id;
+        CabinCharacterCardItem summonedCard = null;
+        CabinCharacterUgcInfo summonedInfo = null;
+
         foreach (var data in list)
         {
             var info = data?.characterInfo as CabinCharacterUgcInfo;
@@ -259,7 +278,16 @@ public class CameraModeNpcMenu : CameraModeMenuBase
             card.SetData(info, _ => OnCallItemClicked(card, info));
             card.SetBadgesVisible(false);
             _callCards.Add(card);
+
+            if (!string.IsNullOrEmpty(summonedId) && info.id == summonedId)
+            {
+                summonedCard = card;
+                summonedInfo = info;
+            }
         }
+
+        if (summonedCard != null)
+            OnCallItemClicked(summonedCard, summonedInfo);
     }
 
     private void OnCallItemClicked(CabinCharacterCardItem card, CabinCharacterUgcInfo info)
@@ -269,17 +297,27 @@ public class CameraModeNpcMenu : CameraModeMenuBase
         _selectedCallCard = card;
         _selectedCallInfo = info;
         if (confirmBuddyBtn != null) confirmBuddyBtn.interactable = true;
+        RefreshConfirmBuddyBtn();
     }
 
     private void OnConfirmBuddyClick()
     {
+        bool isDismiss = _selectedCallInfo != null
+            && AIBoxBuddyCallPanel.CurrentSummonedInfo != null
+            && _selectedCallInfo.id == AIBoxBuddyCallPanel.CurrentSummonedInfo.id;
+        if (isDismiss)
+        {
+            AIBoxBuddyCallPanel.DismissBuddy();
+            RefreshToggleVisibility();
+            RefreshConfirmBuddyBtn();
+            return;
+        }
         if (_selectedCallInfo == null)
         {
             TipPanel.ShowToast("请先选择一个 AI 伙伴");
             return;
         }
         AIBoxBuddyCallPanel.SummonByCabin(_selectedCallInfo);
-        // 召唤后：隐藏 single，显示其余 Toggle，并默认切到双人动作
         RefreshToggleVisibility();
         if (double_toggle != null) double_toggle.isOn = true;
     }
@@ -510,6 +548,9 @@ public class CameraModeNpcMenu : CameraModeMenuBase
     {
         if (!isOn) return;
         HideAllSubViews();
+        // _exclusiveViews[2] 是 "SkinScrollView" 父容器，HideAllSubViews 将其置 inactive；
+        // 若 skinScrollRect 是其子节点，必须先激活父容器，子节点的 SetActive(true) 才能生效
+        if (_exclusiveViews[2] != null) _exclusiveViews[2].SetActive(true);
         if (skinScrollRect != null) skinScrollRect.gameObject.SetActive(true);
         if (confirmSkinBtn != null) confirmSkinBtn.gameObject.SetActive(true);
         BuildSkinList();

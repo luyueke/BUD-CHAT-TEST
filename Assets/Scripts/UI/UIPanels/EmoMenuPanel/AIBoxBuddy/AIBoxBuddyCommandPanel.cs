@@ -90,9 +90,8 @@ public class AIBoxBuddyCommandPanel : BasePanel<AIBoxBuddyCommandPanel>
             var name = AIBuddyInMapUIManager.Inst.GetBuddyInfo(_mapBuddy)?.GetName();
             var mapData = AIBoxBuddyCallPanel.BuildInteractSyncData(cmd, name);
             AIBoxBuddyCallPanel.PlayActivation(ctrl, go, mapData);
-            // 口令归属当前玩家发出（与 self-buddy 一致）：聊天用真实玩家 uid 才能在 GetPlayerInfoById 命中并显示；
-            // 传 LocalBuddyId（AINpcInMap_xxx）非房间内玩家 → AddPlayerMessage 取不到 PlayerInfo 会丢弃消息
-            MessageHelper.Broadcast(MessageName.OnBuddyCommandChat, AccountDataManager.Inst.Uid, mapData);
+            // 不广播 OnBuddyCommandChat：该消息用 selfUid 作 key 会命中自己召唤的 buddy 并冒出气泡，
+            // 地图 buddy 无需在自己 buddy 头顶显示台词。
             // TODO: 地图伙伴的房间内联机同步需独立通道（self-buddy 的 SendBuddyInteract 针对本人 buddy）
             CloseSelf();
             return;

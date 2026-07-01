@@ -61,6 +61,11 @@ public class SignInPanel : BasePanel<SignInPanel>
     private AccountUserInfo userInfo = new AccountUserInfo();
     private bool PrivacyFlag = false;
     private string banToastMsg = "";
+    // 登录序号：每次发起登录自增，回调中比对，丢弃过期（被新登录取代）的登录结果
+    private int _loginSeq = 0;
+    // 记住上次测试登录的账号，重启后直接重登（不走原生第三方/实名）
+    private const string TestAccountOpenIdKey = "LastTestAccountOpenId";
+    private const string TestAccountNickKey = "LastTestAccountNick";
     static public bool isNewPlayer = false;
     private bool IsRunBackgroud = false;
     void Destory()
@@ -147,6 +152,112 @@ public class SignInPanel : BasePanel<SignInPanel>
 #if UNITY_ANDROID
         MobileInterface.Instance.AddClientRespose(MobileInterfaceDefine.forceLogout, ForceLogout);
 #endif
+
+        // 显示「测试登录」入口：仅未登录时显示。
+        // 有记住的测试账号会在 AdjustSignInUI 自动重登（显示"开始游戏"）；有缓存老用户也是登录态——都不显示测试UI。
+        // 短路：开关关闭（线上）时不读 PlayerPrefs，零影响。
+        if (IsTestAccountLoginEnabled() && !hasLoginIn
+            && string.IsNullOrEmpty(PlayerPrefs.GetString(TestAccountOpenIdKey, "")))
+        {
+            TestAccountLoginPanel.Instance.Show(OnTestAccountSelected);
+        }
+    }
+
+    /// <summary>
+    /// 清掉记住的测试账号（登出时调用），使下次回到登录页显示账号选择而非自动重登。
+    /// 仅测试开关开启时生效；线上开关关闭时为空操作，零影响。
+    /// </summary>
+    public static void ClearRememberedTestAccount()
+    {
+        if (!IsTestAccountLoginEnabled())
+        {
+            return;
+        }
+        PlayerPrefs.DeleteKey(TestAccountOpenIdKey);
+        PlayerPrefs.DeleteKey(TestAccountNickKey);
+        PlayerPrefs.Save();
+    }
+
+    /// <summary>
+    /// 是否启用测试账号登录入口。
+    /// 通过反射读取 AOT 程序集里 GameStart.TestAccountLoginEntryEnabled 静态开关
+    /// （热更程序集不能直接引用 AOT 的 GameStart）。读取失败一律视为关闭。
+    /// 线上安全由底包隔离保证：正式底包不含该 AOT 代码/开关，反射读不到即返回 false。
+    /// </summary>
+    // 反射结果缓存：开关运行期不变，只反射一次，避免线上每次调用都反射+打日志
+    private static bool? _testLoginEnabledCache;
+
+    private static bool IsTestAccountLoginEnabled()
+    {
+        if (_testLoginEnabledCache.HasValue)
+        {
+            return _testLoginEnabledCache.Value;
+        }
+
+        bool enabled = false;
+        try
+        {
+            Type type = Type.GetType("GameStart, Assembly-CSharp");
+            if (type == null)
+            {
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    type = asm.GetType("GameStart");
+                    if (type != null)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            var field = type?.GetField("TestAccountLoginEntryEnabled",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            enabled = field?.GetValue(null) is bool b && b;
+        }
+        catch (Exception)
+        {
+            enabled = false;
+        }
+
+        _testLoginEnabledCache = enabled;
+        return enabled;
+    }
+
+    /// <summary>
+    /// 选中测试账号后，以游客(Tourists)身份 + 固定 openId 直接登录后端。
+    /// 不经过原生 U8SDK 渠道登录与实名认证流程；同一 openId 始终对应同一账号。
+    /// </summary>
+    private void OnTestAccountSelected(string openId, string nickname)
+    {
+        if (string.IsNullOrEmpty(openId))
+        {
+            return;
+        }
+        LoggerUtils.Log($"测试账号登录: openId={openId}, nickname={nickname}");
+        userInfo.nickname = nickname;
+        // 记住该测试账号，重启后直接重登（不走原生第三方/实名）
+        PlayerPrefs.SetString(TestAccountOpenIdKey, openId);
+        PlayerPrefs.SetString(TestAccountNickKey, nickname);
+        PlayerPrefs.Save();
+        // 登录开始即隐藏入口，避免覆盖后续的性别选择/大厅界面；失败时会重新显示
+        if (TestAccountLoginPanel.InstExists)
+        {
+            TestAccountLoginPanel.Instance.Hide();
+        }
+
+        // 关键：取消「老用户自动登录」回调并清掉本地缓存，
+        // 否则缓存账号的登录回调会在测试登录后返回，把账号覆盖成旧号。
+        MobileInterface.Instance.DelClientResponse(MobileInterfaceDefine.OldSignAuth);
+        MobileInterface.Instance.DelClientFail(MobileInterfaceDefine.OldSignAuth);
+        AccountDataManager.Inst.DeleteCache();
+
+#if UNITY_EDITOR
+        // 编辑器下忽略 DebugSetting 账号覆盖，保证登录的就是所选测试账号（手机平台不编译）
+        AccountDataManager.Inst.IgnoreDebugAccount = true;
+#endif
+
+        // isFirstLogin=true：新账号走性别/新手流程，老账号直接进大厅
+        OnSignInDerect(AccountPlatform.Tourists, openId, new SignChannelInfo(), true);
     }
 
     private void ForceLogout(string message)
@@ -154,6 +265,8 @@ public class SignInPanel : BasePanel<SignInPanel>
         MobileInterface.Instance.DelClientResponse(MobileInterfaceDefine.forceLogout);
         GameInstanceManager.Release();
         AccountDataManager.Inst.DeleteCache();
+        // 登出时清掉记住的测试账号：回到登录页不再自动重登，从而显示测试账号选择，实现切换账号
+        ClearRememberedTestAccount();
         LoginViewUs.ResetAllLoader();
         HideLoading();
         HideAllLoading();
@@ -161,6 +274,12 @@ public class SignInPanel : BasePanel<SignInPanel>
 
         fullScreenBtn.interactable = true;
         SetupSignInView();
+
+        // 登出后若开启测试登录，显示测试账号选择，便于切换账号
+        if (IsTestAccountLoginEnabled())
+        {
+            TestAccountLoginPanel.Instance.Show(OnTestAccountSelected);
+        }
 
         MobileInterface.Instance.SendMessage(MobileInterfaceDefine.logout,
             "");
@@ -459,6 +578,31 @@ public class SignInPanel : BasePanel<SignInPanel>
         LoginViewUs.Hide();
         mainViewCN.SetActive(true);
         mainViewUS.SetActive(false);
+
+#if !PACKAGE_TYPE_US
+        // 记住的测试账号：开启测试登录且记录过测试账号时，直接用 openId 重登后端，
+        // 绝不走原生 U8（第三方/实名）；其余正常流程不受影响。
+        if (IsTestAccountLoginEnabled())
+        {
+            string savedTestOpenId = PlayerPrefs.GetString(TestAccountOpenIdKey, "");
+            if (!string.IsNullOrEmpty(savedTestOpenId))
+            {
+                privacyToggle.gameObject.SetActive(false);
+                fullScreenBtn?.gameObject.SetActive(true);
+                // 与 SetupOldUserView 一致：创建老用户样式的"开始游戏"按钮，否则看不到可见的进入按钮
+                SetupSignInButtons(new List<AccountPlatform>() { AccountPlatform.Tourists }, false, true);
+                ShowLoading();
+                userInfo.nickname = PlayerPrefs.GetString(TestAccountNickKey, "");
+#if UNITY_EDITOR
+                // 编辑器下忽略 DebugSetting 账号覆盖，保证重登的就是记住的测试账号（手机平台不编译）
+                AccountDataManager.Inst.IgnoreDebugAccount = true;
+#endif
+                OnSignInDerect(AccountPlatform.Tourists, savedTestOpenId, new SignChannelInfo(), false);
+                return;
+            }
+        }
+#endif
+
         bool hasLoginIn = AccountDataManager.Inst.HasDiskCache();
         fullScreenBtn?.gameObject.SetActive(hasLoginIn);
         if (hasLoginIn)
@@ -580,6 +724,13 @@ public class SignInPanel : BasePanel<SignInPanel>
 #if !PACKAGE_TYPE_US
         SetupSignInButtons( new List<AccountPlatform>() { AccountPlatform.Tourists }, false,true);
         ShowLoading();
+        // 游客/测试账号(Tourists)：用缓存 openId 直接重登后端，不走原生 OldSignAuth，
+        // 否则原生会对这个游客账号弹出 U8 登录界面。正常 CN 用户为微信/QQ，不进此分支。
+        if (AccountDataManager.Inst.accountPlatform == AccountPlatform.Tourists)
+        {
+            OnSignInDerect(AccountPlatform.Tourists, AccountDataManager.Inst.accountUnionid, new SignChannelInfo(), false);
+            return;
+        }
         OldUserSignInDirect();
 #endif
     }
@@ -740,6 +891,10 @@ public class SignInPanel : BasePanel<SignInPanel>
 
     protected override void OnDestroy()
     {
+        if (TestAccountLoginPanel.InstExists)
+        {
+            TestAccountLoginPanel.Instance.Hide();
+        }
     }
 
     //private void OnApplicationPause(bool paused)
@@ -838,10 +993,11 @@ public class SignInPanel : BasePanel<SignInPanel>
     public void OnSignInDerect(AccountPlatform platform, string openId, SignChannelInfo channelInfo, bool isFirstLogin)
     {
         ShowLoading();
+        int seq = ++_loginSeq;
         AnalyticsManager.Inst.Track(AnalyticsEventName.USER_LOGIN_IN);
         AccountDataManager.Inst.SignIn(platform, openId, channelInfo, data =>
         {
-            if (this == null)
+            if (this == null || seq != _loginSeq)
             {
                 return;
             }
@@ -849,7 +1005,7 @@ public class SignInPanel : BasePanel<SignInPanel>
 
         }, fRes =>
         {
-            if (this == null)
+            if (this == null || seq != _loginSeq)
             {
                 return;
             }
@@ -864,6 +1020,7 @@ public class SignInPanel : BasePanel<SignInPanel>
         TapCoreManager.Inst.Login(authData.userInfo.uid);
         AnalyticsManager.Inst.Login(authData.userInfo.uid);
         AccountDataManager.Inst.isNewOpenld = authData.isNewOpenId;
+        BuglyAgent.SetUserId(authData.userInfo.uid);
         LoggerUtils.Log($"onSignInSuccess uid: {authData.userInfo.uid},authData.isNewOpenld={authData.isNewOpenId}");
         LoggerUtils.Log($"ReplyUserInfo1: uid: {authData.userInfo.uid} ,token {authData.token}");
         userInfo = authData.userInfo;
@@ -1087,6 +1244,12 @@ public class SignInPanel : BasePanel<SignInPanel>
         if (!string.IsNullOrEmpty(toast))
         {
             TipPanel.ShowToast(toast);
+        }
+
+        // 登录失败，恢复测试登录入口以便重试（仅在开关开启时）
+        if (IsTestAccountLoginEnabled() && TestAccountLoginPanel.InstExists)
+        {
+            TestAccountLoginPanel.Instance.Show(OnTestAccountSelected);
         }
     }
 

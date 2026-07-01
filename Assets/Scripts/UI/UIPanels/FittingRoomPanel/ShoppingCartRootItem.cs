@@ -14,7 +14,8 @@ public class ShoppingCartItemData
     public string id;
     public int type;          // ResourceType
     public string iconPath;   // UGC cover URL；为空时用 id 当 PGC sprite name
-    public int price;
+    public int price;         // 月卡折后实付价
+    public int originalPrice; // 月卡折前原价（与 price 相同表示无折扣）
     public string name;
     public int currencyType;  // CurrencyType
     public int subType;

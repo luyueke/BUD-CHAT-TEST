@@ -86,7 +86,7 @@ namespace UI.UIPanels.GameEdit
                 OnSelectAIBuddy(info);
                 onDone?.Invoke(true);
             };
-            UIManager.Inst.OpenPanel<IncubationCabinRolesMainPanel>(PanelId.IncubationCabinRolesMainPanel, onImport);
+            UIManager.Inst.OpenPanel<IncubationCabinRolesMainPanel>(PanelId.IncubationCabinRolesMainPanel, onImport, "确认使用");
         }
 
         private void OnSelectAIBuddy(CabinCharacterUgcInfo info)

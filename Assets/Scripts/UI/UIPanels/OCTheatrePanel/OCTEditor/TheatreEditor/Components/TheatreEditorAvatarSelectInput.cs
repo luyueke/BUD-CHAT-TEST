@@ -9,14 +9,29 @@ public class TheatreEditorAvatarSelectInput : MonoBehaviour
     [SerializeField] private Button selectBtn;
     [SerializeField] private GameObject iconGObject;
     [SerializeField] private RemoteImageBehaviour avatarImage;
+    [SerializeField] private Toggle tog_isShowAvatar;
+     [SerializeField] private Button btn_setPos;
 
     private Action onSelectClicked;
+    private Action<bool> onShowAvatarChanged;
 
-    public void Init(Action onSelect)
+    public void Init(Action onSelect, Action<bool> onShowAvatarChange = null)
     {
         onSelectClicked = onSelect;
+        onShowAvatarChanged = onShowAvatarChange;
         selectBtn?.onClick.RemoveAllListeners();
         selectBtn?.onClick.AddListener(() => onSelectClicked?.Invoke());
+        if (tog_isShowAvatar != null)
+        {
+            tog_isShowAvatar.onValueChanged.RemoveAllListeners();
+            tog_isShowAvatar.onValueChanged.AddListener(v => onShowAvatarChanged?.Invoke(v));
+        }
+    }
+
+    public void SetIsShowAvatar(bool value)
+    {
+        if (tog_isShowAvatar != null)
+            tog_isShowAvatar.isOn = value;
     }
 
     private const string NarratorImagePath = "Assets/Loadable/UI/UIPanel/OCTheatrePanel/Theatre_narration.png";

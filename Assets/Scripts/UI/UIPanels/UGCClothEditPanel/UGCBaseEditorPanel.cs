@@ -834,7 +834,7 @@ public class UGCBaseEditorPanel<T>: BasePanel<T> where T : BasePanel<T>
     }
     
     
-    private void OnCopyBtnClick()
+    protected virtual void OnCopyBtnClick()
     {
         zoomInputReceiver.gameObject.SetActive(false);
         List<RenderTexture> allFinalRenderTextures = new List<RenderTexture>();

@@ -291,7 +291,8 @@ public class TheatreEditorPanel : BasePanel<TheatreEditorPanel>
         Vector3 initialPosition,
         Vector3 initialRotation,
         float initialScale,
-        Action<Vector3, Vector3, float> onConfirm)
+        Action<Vector3, Vector3, float> onConfirm,
+        bool showSetPos = false)
     {
         ShowPage(EditorPageType.EmoteShowcase);
 
@@ -354,10 +355,17 @@ public class TheatreEditorPanel : BasePanel<TheatreEditorPanel>
             },
             onBack: () =>
             {
+                if (showSetPos)
+                {
+                    // 从 btn_setPos 进入：返回段落编辑，不走演员选择
+                    BackToSectionEdit();
+                    return;
+                }
                 ShowAvatarSelector(dc, emoteData, actorSelections.Count == 1,
                     newSelections => ShowEmoteShowcase(dc, emoteData, newSelections,
                         initialPosition, initialRotation, initialScale, onConfirm));
-            });
+            },
+            showSetPos: showSetPos);
     }
 
     public void BackToEmoteEdit()

@@ -15,7 +15,7 @@ public class DraftBoxCharacterDetailPanel : MonoBehaviour
     [SerializeField] private Slider Slider_PosX;    // 左右位置 Slider，映射范围 -1.0 ~ 1.0
 
     private const float ScaleMin = 1.87f;
-    private const float ScaleMax = 3.0f;
+    private const float ScaleMax = 4.0f;
     private const float PosXMin = -1.0f;
     private const float PosXMax = 1.0f;
     private const float PosYMin = -2.5f;

@@ -1,6 +1,14 @@
 using System;
 using System.Collections.Generic;
+using Es;
+using Game.Store;
+using GameData;
+using GameData.Base;
+using GameData.BaseInfo;
+using GameData.PgcData;
+using Newtonsoft.Json;
 using Pb.Theatre;
+using UGCAsset;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -21,6 +29,7 @@ public class TheatreEditorSectionEdit : TheatreEditorUIBase<TheatreEditorDataCen
     [SerializeField] private Button newBtn;
     [SerializeField] private Button closeBoardBtn;
     [SerializeField] private Button addOneJumpBtn;
+    [SerializeField] private Button setPosBtn; // 快速设置演员镜头：打开 EmoteShowcase 并显示 setPosRoot
 
     private POCTheatreSection currentSection;
 
@@ -40,6 +49,9 @@ public class TheatreEditorSectionEdit : TheatreEditorUIBase<TheatreEditorDataCen
 
         addOneJumpBtn?.onClick.RemoveAllListeners();
         addOneJumpBtn?.onClick.AddListener(OnAddOneJumpClicked);
+
+        setPosBtn?.onClick.RemoveAllListeners();
+        setPosBtn?.onClick.AddListener(OnSetPosClicked);
 
         // currentIndexInput：修改段落编号（移动排序）
         currentIndexInput?.Init("段落编号", 4, text =>
@@ -73,8 +85,10 @@ public class TheatreEditorSectionEdit : TheatreEditorUIBase<TheatreEditorDataCen
             DataRoot.SetSectionNextIndex(targetSection, index);
         }, numericOnly: true);
 
-        // avatarSelectInput：点击打开 AvatarExpressEdit
-        avatarSelectInput?.Init(() => Panel?.ShowAvatarExpressEdit(currentSection));
+        // avatarSelectInput：点击打开 AvatarExpressEdit；toggle 控制游玩时是否显示角色
+        avatarSelectInput?.Init(
+            () => Panel?.ShowAvatarExpressEdit(currentSection),
+            isShow => DataRoot?.SetSectionHideAvatar(currentSection, !isShow));
 
         Action onBoardOpen = () => closeBoardBtn?.gameObject.SetActive(true);
         Action onBoardClose = () => closeBoardBtn?.gameObject.SetActive(false);
@@ -183,6 +197,7 @@ public class TheatreEditorSectionEdit : TheatreEditorUIBase<TheatreEditorDataCen
 
         // 角色立绘
         avatarSelectInput?.Refresh(currentSection.AvatarId, currentSection.AvatarType, DataRoot);
+        avatarSelectInput?.SetIsShowAvatar(!currentSection.HideAvatar);
 
         // 背景图
         bgInput?.Refresh(currentSection.BackgroundUrl);
@@ -254,6 +269,110 @@ public class TheatreEditorSectionEdit : TheatreEditorUIBase<TheatreEditorDataCen
         DataRoot.SelectSection(targetSection);
         RefreshAll();
         Panel?.RefreshSectionItemDisplay(targetSection);
+    }
+
+    // 快速设置演员镜头：打开 EmoteShowcase 并显示 setPosRoot。
+    // 段落已配置动作 → 用该动作 + EmotePlayers；未配置 → 用段落立绘角色展示 idle（与 TheatreGamePanel 一致）。
+    private void OnSetPosClicked()
+    {
+        var section = currentSection;
+        if (section == null) return;
+
+        var emote = section.Emote;
+        bool hasEmote = emote != null && !string.IsNullOrEmpty(emote.EmoteId);
+
+        if (hasEmote)
+        {
+            var emoteId = emote.EmoteId;
+            if (int.TryParse(emoteId, out _))
+            {
+                var cfg = DataTables.GetEmoUIConfig(emoteId);
+                var animInfo = new AnimInfo
+                {
+                    id       = emoteId,
+                    name     = cfg?.name ?? "",
+                    animType = (cfg != null && ((EmoteSubType)cfg.emoType).IsDouble()) ? 3 : 1,
+                };
+                OpenSetPosShowcaseWithEmote(BuildEmoteItem(emoteId, animInfo));
+            }
+            else
+            {
+                UGCAnimAssetManager.Inst.GetAssetInfo<UGCAnimGetResponse>(emoteId, animInfo =>
+                {
+                    if (this == null) return;
+                    if (animInfo == null) { TipPanel.ShowToast("动作信息获取失败"); return; }
+                    OpenSetPosShowcaseWithEmote(BuildEmoteItem(emoteId, animInfo));
+                });
+            }
+        }
+        else
+        {
+            // 未配置动作：用段落立绘角色展示 idle
+            if (string.IsNullOrEmpty(section.AvatarId) || section.AvatarId == TheatreEditorDataCenter.NarratorAvatarId)
+            {
+                TipPanel.ShowToast("请先为段落选择角色");
+                return;
+            }
+            var selections = new List<(string avatarId, int clothesIndex)> { (section.AvatarId, 0) };
+            OpenShowcaseCore(null, selections, Vector3.zero, Vector3.zero, 0f);
+        }
+    }
+
+    private static RecommendItemData BuildEmoteItem(string emoteId, AnimInfo animInfo)
+    {
+        return new RecommendItemData
+        {
+            ugcId        = emoteId,
+            ugcType      = UgcType.Anim,
+            ugcData      = JsonConvert.SerializeObject(animInfo),
+            // 已配置在段落里说明已拥有，consumed=1 让 showcase 直接显示确认按钮
+            interactInfo = new BaseInteractInfo { consumed = 1 },
+        };
+    }
+
+    private void OpenSetPosShowcaseWithEmote(RecommendItemData emoteData)
+    {
+        var emote = currentSection?.Emote;
+        if (emote == null) return;
+
+        var selections = new List<(string avatarId, int clothesIndex)>();
+        if (emote.EmotePlayers != null)
+            foreach (var p in emote.EmotePlayers)
+                selections.Add((p.PlayerId, p.ClothesIndex));
+
+        var initPos = emote.CustomPosition != null
+            ? new Vector3(emote.CustomPosition.X, emote.CustomPosition.Y, 0f) : Vector3.zero;
+        var initRot = emote.CustomRotation != null
+            ? new Vector3(emote.CustomRotation.X, emote.CustomRotation.Y, 0f) : Vector3.zero;
+        OpenShowcaseCore(emoteData, selections, initPos, initRot, emote.Scale);
+    }
+
+    private void OpenShowcaseCore(
+        RecommendItemData emoteData,
+        List<(string avatarId, int clothesIndex)> selections,
+        Vector3 initPos, Vector3 initRot, float initScale)
+    {
+        var target = currentSection; // capture，确认回调时段落选择可能已变化
+        Panel?.ShowEmoteShowcase(
+            DataRoot, emoteData, selections,
+            initPos, initRot, initScale,
+            onConfirm: (pos, rot, scale) =>
+            {
+                if (target != null)
+                {
+                    // 已有动作则在其基础上改镜头；idle（无动作）则新建一个仅含镜头/演员的 emote
+                    var updated = target.Emote != null ? target.Emote.Clone() : new POCTheatreEmote();
+                    if (updated.EmotePlayers.Count == 0 && selections != null)
+                        foreach (var (avatarId, clothesIndex) in selections)
+                            updated.EmotePlayers.Add(new POCTheatreAvatarOc { PlayerId = avatarId, ClothesIndex = clothesIndex });
+                    updated.CustomPosition = new P_OCTVector3 { X = pos.x, Y = pos.y };
+                    updated.CustomRotation = new P_OCTVector3 { X = rot.x, Y = rot.y };
+                    updated.Scale          = scale;
+                    DataRoot?.SetSectionEmote(target, updated);
+                }
+                Panel?.BackToSectionEdit();
+            },
+            showSetPos: true);
     }
 
     private void OnCloseBoardClicked()

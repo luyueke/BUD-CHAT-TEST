@@ -58,6 +58,8 @@ public class AIBoxBuddyCallPanel : BasePanel<AIBoxBuddyCallPanel>
         Btn_Close.onClick.AddListener(OnCloseBtnClick);
         Btn_Call.onClick.AddListener(OnCallBtnClick);
         changeType.SetCallback(OnSourceChanged);
+        goToStoreBtn.onClick.RemoveAllListeners();
+        goToStoreBtn.onClick.AddListener(() => UIManager.Inst.OpenPanel(PanelId.AIPartnerShopPanel, AIPartnerTabSecond.AICharacter));
 
         _callBtnLabel = Btn_Call.GetComponentInChildren<Text>(true);
         if (Btn_Call.image != null) _callBtnNormalColor = Btn_Call.image.color;
@@ -66,6 +68,13 @@ public class AIBoxBuddyCallPanel : BasePanel<AIBoxBuddyCallPanel>
     public override void OnShow(params object[] args)
     {
         base.OnShow(args);
+        // 跨房间重进后 buddy 已被销毁，但静态召唤记录可能仍残留 → 在此清空，避免按钮显示"解除召唤"
+        if (CurrentSummonedInfo != null && AIBuddyAvatarController.Inst.SelfController == null)
+        {
+            CurrentSummonedInfo = null;
+            CurrentSkinPackId = null;
+            ActiveSkinVoiceCommands = null;
+        }
         RefreshCallBtn();
         goToStoreBtn.gameObject.SetActive(false);
         // 默认显示 UGC 内容
@@ -140,6 +149,15 @@ public class AIBoxBuddyCallPanel : BasePanel<AIBoxBuddyCallPanel>
 
         // UGC 列表为空时显示前往商店按钮
         goToStoreBtn.gameObject.SetActive(_itemList.Count == 0);
+
+        // 自动选中：优先选中当前已召唤的伙伴，否则选第一个
+        CabinCharacterCardItem toSelect = null;
+        if (CurrentSummonedInfo != null)
+            toSelect = _itemList.Find(i => (i._data as CabinCharacterUgcInfo)?.id == CurrentSummonedInfo.id);
+        if (toSelect == null && _itemList.Count > 0)
+            toSelect = _itemList[0];
+        if (toSelect != null)
+            OnItemClicked(toSelect, toSelect._data as CabinCharacterUgcInfo);
     }
 
     private void OnItemClicked(CabinCharacterCardItem clickedItem, CabinCharacterUgcInfo info)
@@ -158,10 +176,12 @@ public class AIBoxBuddyCallPanel : BasePanel<AIBoxBuddyCallPanel>
     private bool IsSelectedSummoned()
         => _selectedInfo != null && CurrentSummonedInfo != null && _selectedInfo.id == CurrentSummonedInfo.id;
 
-    /// <summary>按选中态刷新 Call 按钮：未选中→禁用；选中已召唤者→灰色「解除召唤」；否则→原色「召唤」。</summary>
+    /// <summary>按选中态刷新 Call 按钮：未选中→隐藏；选中已召唤者→灰色「解除召唤」；否则→原色「召唤」。</summary>
     private void RefreshCallBtn()
     {
-        Btn_Call.interactable = _selectedInfo != null;
+        bool hasSelection = _selectedInfo != null;
+        Btn_Call.gameObject.SetActive(hasSelection);
+        if (!hasSelection) return;
         bool dismiss = IsSelectedSummoned();
         if (_callBtnLabel != null)
             _callBtnLabel.text = dismiss ? "解除召唤" : "召唤";
@@ -231,6 +251,13 @@ public class AIBoxBuddyCallPanel : BasePanel<AIBoxBuddyCallPanel>
 
         // 唤醒动作播完后进入待机循环（initialDelay 给唤醒动作留出播放时间）
         StartBuddyStandbyOn(buddyCtrl, info.usingEmote, awakeData != null ? AwakeAnimReserveTime : 0f);
+    }
+
+    /// <summary>解除当前已召唤的 AI 伙伴并清空召唤记录。供外部（如 CameraMode NpcMenu）共用。</summary>
+    public static void DismissBuddy()
+    {
+        GameAIBuddyManager.Inst.ExitSelfAIBuddy();
+        CurrentSummonedInfo = null;
     }
 
     /// <summary>在指定 buddy（自己端或其他端）上挂载待机循环。供同步接收方复用。</summary>

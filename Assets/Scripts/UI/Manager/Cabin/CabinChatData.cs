@@ -73,7 +73,7 @@ public class TextChatOptions
 public class BotMatchTags
 {
     public string categoryName; //性别/年龄/特质
-    public int matchedTagId;//标签id
+    public string matchedTagId;//标签id
     public string matchedTag;//标签id
     public string reason;
 }
@@ -175,4 +175,13 @@ public class ChatSelectionChip
     public string label;
     public string value;
 }
+
+/// <summary>角色扮演场景随机生成结果</summary>
+public class AiCharacterSceneRandomResponse
+{
+    public string scene;
+    public string userRole;
+    public string partnerRole;
+}
+
 

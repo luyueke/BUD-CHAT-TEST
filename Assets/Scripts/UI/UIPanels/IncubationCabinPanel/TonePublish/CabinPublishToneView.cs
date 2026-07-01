@@ -1,3 +1,4 @@
+using Basic.Utils;
 using Com.TheFallenGames.OSA.Util.IO;
 using Game.COSXML;
 using GameData;
@@ -112,8 +113,13 @@ namespace UI.UIPanels.IncubationCabin
                 isCrop = 1,
                 cropAspectRatio = 1,
             };
+            var paramsJson = JsonConvert.SerializeObject(albumParams);
+            LoggerUtils.Log($"[CabinPublishToneView] OnAddCardBtnClick 点击，准备打开系统相册，params={paramsJson}");
+
+            MobileInterface.Instance.AddClientFail(MobileInterfaceDefine.openSystemAlbum, OnCoverAlbumFail);
             MobileInterface.Instance.AddClientRespose(MobileInterfaceDefine.openSystemAlbum, OnCoverAlbumResult);
-            MobileInterface.Instance.OpenSystemAlbum(JsonConvert.SerializeObject(albumParams));
+            MobileInterface.Instance.OpenSystemAlbum(paramsJson);
+            LoggerUtils.Log("[CabinPublishToneView] 已调用原生 OpenSystemAlbum，等待原生裁剪回调...");
 #if UNITY_EDITOR
             var filePath = Path.Combine(Application.streamingAssetsPath, "signIn_bg.png");
             var resData = new AlbumResData { localUrl = filePath };
@@ -121,19 +127,48 @@ namespace UI.UIPanels.IncubationCabin
 #endif
         }
 
+        /// <summary>
+        /// 原生相册/裁剪返回失败时的回调（isSuccess=0）。
+        /// 对齐 AlbumProcess.OnNativeFail，清理两个回调并弹提示。
+        /// </summary>
+        private void OnCoverAlbumFail(string msg)
+        {
+            LoggerUtils.LogError($"[CabinPublishToneView] 原生相册/裁剪返回失败 msg={msg}");
+            MobileInterface.Instance.DelClientResponse(MobileInterfaceDefine.openSystemAlbum);
+            MobileInterface.Instance.DelClientFail(MobileInterfaceDefine.openSystemAlbum);
+            TipPanel.ShowToast("导入图片失败，请再试一遍!");
+        }
+
         private void OnCoverAlbumResult(string msg)
         {
+            LoggerUtils.Log($"[CabinPublishToneView] OnCoverAlbumResult 收到原生回调 msg={msg}");
+
             MobileInterface.Instance.DelClientResponse(MobileInterfaceDefine.openSystemAlbum);
+            MobileInterface.Instance.DelClientFail(MobileInterfaceDefine.openSystemAlbum);
 
             var albumRes = JsonConvert.DeserializeObject<AlbumResData>(msg);
 
-            if (albumRes == null || string.IsNullOrEmpty(albumRes.localUrl))
+            if (albumRes == null)
+            {
+                LoggerUtils.LogError("[CabinPublishToneView] OnCoverAlbumResult 反序列化失败，albumRes 为 null");
                 return;
+            }
+
+            if (string.IsNullOrEmpty(albumRes.localUrl))
+            {
+                LoggerUtils.LogError($"[CabinPublishToneView] OnCoverAlbumResult localUrl 为空，mediaType={albumRes.mediaType}");
+                return;
+            }
 
             string filePath = albumRes.localUrl;
+            bool fileExists = File.Exists(filePath);
+            LoggerUtils.Log($"[CabinPublishToneView] OnCoverAlbumResult localUrl={filePath} fileExists={fileExists}");
+
             string uri = $"UgcToneCover/{AccountDataManager.Inst.Uid}/{Path.GetFileName(filePath)}";
             CosXmlUploadManager.UploadFile(uri, filePath, (url, err) =>
             {
+                LoggerUtils.Log($"[CabinPublishToneView] UploadFile 回调 url={url} err={err}");
+
                 if (!string.IsNullOrEmpty(err))
                 {
                     TipPanel.ShowToast("导入图片失败，请再试一遍!");
@@ -145,6 +180,8 @@ namespace UI.UIPanels.IncubationCabin
                     HttpMethod.POST, req,
                     rsp =>
                     {
+                        LoggerUtils.Log($"[CabinPublishToneView] AuditImage 回调 auditResult={rsp?.auditResult}");
+
                         if (rsp != null && rsp.auditResult == (int)AuditResult.Passed)
                         {
                             _curCabinToneInfo.cover = url;

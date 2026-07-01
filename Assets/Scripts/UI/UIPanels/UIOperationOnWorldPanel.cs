@@ -309,6 +309,11 @@ public class UIOperationOnWorldPanel : BasePanel<TestPanel1>
         {
             return false;
         }
+        var selfUid = AccountDataManager.Inst.Uid;
+        if (GameVehicleManager.Inst.IsDriver(selfUid) || GameVehicleManager.Inst.IsPassenger(selfUid))
+        {
+            return false;
+        }
 
         foreach (var collider in colliders)
         {
@@ -352,6 +357,11 @@ public class UIOperationOnWorldPanel : BasePanel<TestPanel1>
     {
         if (AvatarController.Inst.SelfStateController.IsInLinkEmote() || AvatarController.Inst.SelfStateController.IsInDoubleEmote()
             || AvatarController.Inst.SelfStateController.IsInLinkAIBuddy())
+        {
+            return false;
+        }
+        var selfUid = AccountDataManager.Inst.Uid;
+        if (GameVehicleManager.Inst.IsDriver(selfUid) || GameVehicleManager.Inst.IsPassenger(selfUid))
         {
             return false;
         }
@@ -432,6 +442,11 @@ public class UIOperationOnWorldPanel : BasePanel<TestPanel1>
         vehicleBtns[0].onClick.RemoveAllListeners();
         vehicleBtns[0].onClick.AddListener(() =>
         {
+            if (AvatarController.Inst.SelfStateController.IsInLinkEmote() || AvatarController.Inst.SelfStateController.IsInLinkAIBuddy())
+            {
+                TipPanel.ShowToast("牵手中无法乘坐载具");
+                return;
+            }
             GameVehicleManager.Inst.SendGetInVehicle(AccountDataManager.Inst.Uid, driver.PlayerID);
         });
         VehicleBtnTransform.gameObject.SetActive(true);

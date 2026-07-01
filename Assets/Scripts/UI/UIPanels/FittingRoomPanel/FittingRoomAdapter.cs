@@ -16,6 +16,7 @@ namespace UI.UIPanels.FittingRoom
         public LazyDataHelper<GoodsData> Data { get; set; }
 
         public Action<GoodsData> OnItemSelected;
+        public Action OnNearEnd;
 
         public Color BgColor;
         public Color SelectedColor;
@@ -47,8 +48,10 @@ namespace UI.UIPanels.FittingRoom
                 return;
             }
             viewsHolder.UpdateColor(BgColor, SelectedColor);
+            viewsHolder.UpdateViews(model, IsFittingRoomPanel, OnItemSelected, viewsHolder.ItemIndex);
 
-            viewsHolder.UpdateViews(model, IsFittingRoomPanel, OnItemSelected , viewsHolder.ItemIndex);
+            if (OnNearEnd != null && Data.Count > 0 && viewsHolder.ItemIndex >= Data.Count - 4)
+                OnNearEnd.Invoke();
         }
 
         protected override void OnCellViewsHolderCreated(FittingRoomItemHolder cellVH, CellGroupViewsHolder<FittingRoomItemHolder> cellGroup)

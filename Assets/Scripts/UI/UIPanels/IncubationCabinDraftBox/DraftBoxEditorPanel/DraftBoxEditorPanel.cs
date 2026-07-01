@@ -10,6 +10,7 @@ using Message;
 using Newtonsoft.Json;
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using UI.Base;
 using UI.BaseWidgets;
@@ -54,8 +55,17 @@ namespace UI.UIPanels.IncubationCabin
         private Vector3 _ikInitialLocalPos;        // 角色创建瞬间（Animator 尚未 tick）缓存的 avatar 根节点初始局部位移，用于回调里还原 Root Motion 造成的漂移
         private Quaternion _ikInitialLocalRot;     // 同上，缓存初始局部旋转
         private bool _hasIkInitialTransform;       // 是否已成功缓存初始 transform（防止回调被同步触发时读到空引用/已偏移值）
+
+        // 同步创建瞬间（Animator 未 tick、骨骼处于 prefab 姿势 = 姿势创作端 CreateAnimAvatar 的基准）对整套骨骼局部姿态做快照。
+        // FinalIK 的 fixTransforms 只会每帧复位“解算器管的骨骼”(脊柱/四肢/手)，手指等非解算骨骼会被 PlayerAnimationCtrl 的 idle 动画推偏，
+        // 真机加载慢 tick 多→偏得更厉害，必须用这份 prefab 基准快照在加载完成后还原。
+        private readonly List<Transform> _boneSnapshotNodes = new List<Transform>();
+        private readonly List<Vector3> _boneSnapshotLocalPos = new List<Vector3>();
+        private readonly List<Quaternion> _boneSnapshotLocalRot = new List<Quaternion>();
+        private bool _hasBoneSnapshot;
         private CabinCharacterBaseInfo _data;             // 当前编辑的草稿数据（深拷贝，所有编辑直接写入此对象）
         private string tokenID;
+        private string _currentPoseData;            // 最近一次应用的封面姿势数据（KeyFrameData JSON），截图重置后用于重放
 
         private RenderTexture _renderTexture;       // 相机输出纹理，直接引用至 PreviewItem，GPU 逐帧更新
         private bool _isUploading = false;          // 防止保存按钮重复触发上传
@@ -181,37 +191,26 @@ namespace UI.UIPanels.IncubationCabin
                 callback: () =>
                 {
                     _isModelLoaded = true;
-                    var animator = _ikController != null ? _ikController.GetComponent<Animator>() : null;
-                    if (animator != null)
-                    {
-                        // 真机上模型加载回调触发前 Animator 已 tick 数帧，把骨骼从绑定姿势推到了动画中段；
-                        // 直接禁用只会把骨骼冻结在被推偏的那一帧（编辑器加载快几乎无偏移，真机加载慢偏移明显）。
-                        // 先 Rebind 把整套骨骼重置回初始绑定姿势，再 Update(0f) 保证当帧立即采样生效，最后禁用，
-                        // 这样冻结的是初始姿势而非动画中段，使真机表现与编辑器一致。
-                        animator.Rebind();
-                        animator.Update(0f);
-                        animator.enabled = false;
-                    }
-
-                    // Rebind 只重置骨骼姿态，不一定回退 Root Motion 累加到 avatar 根节点 Transform 上的位移/旋转，
-                    // 用同步创建阶段缓存的初始值显式还原，确保角色回到最初位置（而非动画跑了几帧后的位置）
-                    if (_hasIkInitialTransform && _ikController != null)
-                    {
-                        _ikController.transform.localPosition = _ikInitialLocalPos;
-                        _ikController.transform.localRotation = _ikInitialLocalRot;
-                    }
+                    // 加载期间 PlayerAnimationCtrl(UIPreviewIdleMode) 会重新启用 Animator 并播 idle，把手指/根节点推偏。
+                    // 加载完成后进入“静态姿势态”：停 idle 协程、强制关 Animator、把骨骼与根节点还原回 prefab 基准。
+                    EnterStaticPoseState();
+                    // 用干净基准把已选姿势重摆一次（异步加载可能晚于姿势应用而把骨骼污染）
+                    if (!string.IsNullOrEmpty(_currentPoseData))
+                        ApplyPose(_currentPoseData);
                 });
             _animCtrl = _characterWrap.Avatar.GetComponentInChildren<PlayerAnimationCtrl>();
             _ikController = _characterWrap.Avatar.GetComponent<AnimIKController>();
 
-            // 在同步创建阶段（此刻 Animator 还未 tick）缓存 avatar 根节点的初始局部位移/旋转，
-            // 供上面的异步加载回调还原 —— 回调触发时 transform 已被 Root Motion 推偏，读不到真正的初始值
+            // 同步创建阶段（此刻 Animator 还未 tick、骨骼=prefab 姿势）：缓存根节点初始 transform + 快照整套骨骼局部姿态，
+            // 供加载完成后还原。回调触发时骨骼已被 idle 动画/Root Motion 推偏，那时再读取已不是真正的初始值。
             if (_ikController != null)
             {
                 _ikInitialLocalPos = _ikController.transform.localPosition;
                 _ikInitialLocalRot = _ikController.transform.localRotation;
                 _hasIkInitialTransform = true;
+                SnapshotSkeletonPose();
             }
+            DisableAnimator();
 
             ApplyTransform();
 
@@ -223,6 +222,65 @@ namespace UI.UIPanels.IncubationCabin
             PhotoCamera.backgroundColor = Color.clear;
             PhotoCamera.targetTexture = _renderTexture;
             PreviewItem.SetLocalCoverTexture(_renderTexture);
+        }
+
+        /// <summary>禁用角色 Animator，避免默认动画 tick 污染手指/根节点（姿势纯由 IK 驱动）</summary>
+        private void DisableAnimator()
+        {
+            var animator = _ikController != null ? _ikController.GetComponent<Animator>() : null;
+            if (animator != null)
+                animator.enabled = false;
+        }
+
+        /// <summary>快照整套骨骼在 prefab 实例化瞬间的局部姿态（创作端基准），用于加载完成后还原非 IK 骨骼（手指等）</summary>
+        private void SnapshotSkeletonPose()
+        {
+            _boneSnapshotNodes.Clear();
+            _boneSnapshotLocalPos.Clear();
+            _boneSnapshotLocalRot.Clear();
+            _hasBoneSnapshot = false;
+            if (_ikController == null) return;
+
+            // 仅快照基础骨架（Bip001 子树，含手指）—— 此刻部件尚未异步加载，正好只覆盖需要还原的骨骼
+            var skeletonRoot = _ikController.transform.Find("Bip001") ?? _ikController.transform;
+            var nodes = skeletonRoot.GetComponentsInChildren<Transform>(true);
+            foreach (var node in nodes)
+            {
+               // Debug.Log($"[DraftBoxEditorPanel] SnapshotSkeletonPose: {node.name} pos={node.localPosition} rot={node.localRotation}");
+                _boneSnapshotNodes.Add(node);
+                _boneSnapshotLocalPos.Add(node.localPosition);
+                _boneSnapshotLocalRot.Add(node.localRotation);
+            }
+            _hasBoneSnapshot = _boneSnapshotNodes.Count > 0;
+        }
+
+        /// <summary>把骨骼局部姿态还原回 prefab 基准快照（FinalIK 随后会在解算骨骼上覆盖，未被 IK 接管的手指等保持基准）</summary>
+        private void RestoreSkeletonPose()
+        {
+            if (!_hasBoneSnapshot) return;
+            for (int i = 0; i < _boneSnapshotNodes.Count; i++)
+            {
+                var node = _boneSnapshotNodes[i];
+                if (node == null) continue;
+                node.localPosition = _boneSnapshotLocalPos[i];
+                node.localRotation = _boneSnapshotLocalRot[i];
+            }
+        }
+
+        /// <summary>
+        /// 进入“静态姿势态”，与姿势创作端 CreateAnimAvatar 的环境对齐：停 idle 协程、强制关 Animator、
+        /// 骨骼与根节点还原回 prefab 基准。消除 PlayerAnimationCtrl 的 idle 动画对手指/Root Motion 的污染。
+        /// </summary>
+        private void EnterStaticPoseState()
+        {
+            _animCtrl?.StopSpecialIdleAnim();
+            DisableAnimator();
+            RestoreSkeletonPose();
+            if (_hasIkInitialTransform && _ikController != null)
+            {
+                _ikController.transform.localPosition = _ikInitialLocalPos;
+                _ikController.transform.localRotation = _ikInitialLocalRot;
+            }
         }
 
         /// <summary>销毁角色 GameObject 并释放 RenderTexture</summary>
@@ -257,11 +315,10 @@ namespace UI.UIPanels.IncubationCabin
             if (_ikController == null || string.IsNullOrEmpty(poseData)) return;
             var keyFrameData = JsonConvert.DeserializeObject<KeyFrameData>(poseData);
             if (keyFrameData == null) return;
+            _currentPoseData = poseData;          // 缓存，供截图前重放，避免封面被重置成 T 姿势
+            EnterStaticPoseState();               // 先把骨骼/根节点还原回 prefab 基准并关掉 idle，保证 IK 在干净基准上解算
             _ikController.ChangeAnimResType(AnimResType.UGC);
             _ikController.SetKeyFrameData(UgcPoseSubType.Single, keyFrameData);
-            //var animator = _ikController.GetComponent<Animator>();
-            //if (animator != null) animator.enabled = true;
-            _animCtrl?.PlayCurEyeAni();
         }
 
         /// <summary>
@@ -367,9 +424,12 @@ namespace UI.UIPanels.IncubationCabin
                 bool dataChanged = JsonConvert.SerializeObject(_data) != _originalDataJson;
                 // 皮肤有变更（皮肤变更同样影响卡面外观，也需要重新截图）
                 bool skinChanged = JsonConvert.SerializeObject(_data.skinPack) != _originalSkinPackJson;
+                // 姿势有变更（影响卡面外观，也需要重新截图）
+                var origData = string.IsNullOrEmpty(_originalDataJson) ? null : JsonConvert.DeserializeObject<CabinCharacterBaseInfo>(_originalDataJson);
+                bool poseChanged = JsonConvert.SerializeObject(_data.coverInfo) != JsonConvert.SerializeObject(origData?.coverInfo);
                 if (dataChanged || skinChanged)
                 {
-                    ShowSaveDialog();
+                    ShowSaveDialog(skinChanged || poseChanged);
                 }
                 else
                 {
@@ -379,7 +439,8 @@ namespace UI.UIPanels.IncubationCabin
         }
 
         /// <summary>弹窗询问用户是否保存当前编辑，确认后触发截图上传并发送服务器请求</summary>
-        private void ShowSaveDialog()
+        /// <param name="takePhoto">皮肤或姿势有变更时传 true 重新截图；否则传 false 沿用已有封面</param>
+        private void ShowSaveDialog(bool takePhoto = true)
         {
             var panel = UIManager.Inst.OpenPanel<CommonBoxConfirmWithTitlePanel>(PanelId.CommonBoxConfirmWithTitlePanel);
             panel.SetTextAndAction(
@@ -387,7 +448,22 @@ namespace UI.UIPanels.IncubationCabin
                 "是否保存当前编辑？",
                 "保存",
                 "丢弃",
-                confirmClick: () => { OnSaveClick(); },
+                confirmClick: () =>
+                {
+                    if (takePhoto)
+                    {
+                        OnSaveClick();
+                    }
+                    else
+                    {
+                        if (_isUploading) return;
+                        if (_characterWrap == null) { CloseSelf(); return; }
+                        if (!_isModelLoaded) { TipPanel.ShowToast("资源正在加载，请稍后再试"); return; }
+                        _isUploading = true;
+                        Btn_Save.SetClickAble(false);
+                        StartCoroutine(UploadAndSave(false));
+                    }
+                },
                 cancelClick: () => { CloseSelf(); }
             );
         }
@@ -416,52 +492,10 @@ namespace UI.UIPanels.IncubationCabin
             if (_isUploading)
                 return;
 
-            // 卡面数据（姿势/缩放/位移/颜色）有变更
-            bool dataChanged = JsonConvert.SerializeObject(_data) != _originalDataJson;
-            // 皮肤有变更（皮肤变更同样影响卡面外观，也需要重新截图）
-            bool skinChanged = JsonConvert.SerializeObject(_data.skinPack) != _originalSkinPackJson;
-
-            if ((dataChanged || skinChanged) && _renderTexture != null && _isModelLoaded)
-            {
-                _isUploading = true;
-                StartCoroutine(UploadCoverAndGoBack());
-            }
-            else
-            {
-                NavigateToCompanionEditor();
-            }
-        }
-
-        /// <summary>
-        /// 卡面数据（姿势/缩放/位移/颜色）有变更时，通过工具类从 RenderTexture 截图上传 COS，
-        /// 用新封面 URL 更新 _data.cover，完成后返回编辑伙伴界面
-        /// </summary>
-        private IEnumerator UploadCoverAndGoBack()
-        {
-            string uploadedUrl = null;
-
-            // 调用工具类完成截图 + 上传，内部包含 WaitForEndOfFrame
-            yield return StartCoroutine(CabinCoverPhotoHelper.UploadFromRenderTexture(_renderTexture, url =>
-            {
-                uploadedUrl = url;
-            }));
-
-            if (!string.IsNullOrEmpty(uploadedUrl))
-            {
-                // 将新封面 URL 写入 _data，返回 IncubationCabinPanel 后立即生效
-                _data.cover = uploadedUrl;
-                var defaultSkin = CabinTools.GetDefaultSkin(_data.skinPack);
-                if (defaultSkin != null)
-                    defaultSkin.cover = uploadedUrl;
-            }
-            else
-            {
-                LoggerUtils.LogError("DraftBoxEditorPanel - 返回时封面上传失败");
-            }
-
-            _isUploading = false;
+            // 返回伙伴编辑器时不拍照，IncubationCabinPanel 持有原始数据，由其自行判断是否保存
             NavigateToCompanionEditor();
         }
+
 
         /// <summary>关闭卡面编辑器，跳转回编辑伙伴界面，并透传原始快照保持脏检测基准</summary>
         private void NavigateToCompanionEditor()
@@ -471,15 +505,42 @@ namespace UI.UIPanels.IncubationCabin
         }
 
         /// <summary>截图上传协程，完成后根据进入类型调用创建或编辑接口，完成后关闭面板</summary>
-        private IEnumerator UploadAndSave()
+        /// <param name="takePhoto">true：重新截图上传；false：皮肤/姿势未变，沿用已有封面</param>
+        private IEnumerator UploadAndSave(bool takePhoto = true)
         {
             string uploadedUrl = null;
 
-            // 调用工具类完成截图 + 上传，内部包含 WaitForEndOfFrame
-            yield return StartCoroutine(CabinCoverPhotoHelper.UploadFromRenderTexture(_renderTexture, url =>
+            if (takePhoto)
             {
-                uploadedUrl = url;
-            }));
+                // 拍照前先重置到绑定姿势清掉残留 IK 状态，再重新应用封面姿势，
+                // 确保截图与实时预览一致（参考 IncubationCabinPanel.PrepareCharacterForPhoto）
+                if (_ikController != null)
+                {
+                    _ikController.ChangeAnimResType(AnimResType.UGC);
+                    _ikController.ResetJointNodes();
+                    _ikController.EnableIKForPhoto();
+
+                    // 重新应用封面姿势，无姿势时保持 T 姿势
+                    if (!string.IsNullOrEmpty(_currentPoseData))
+                    {
+                        ApplyPose(_currentPoseData);
+                    }
+
+                    // 等待一帧，让 IK 把姿势解算写入骨骼后再截图
+                    yield return null;
+                }
+
+                // 调用工具类完成截图 + 上传，内部包含 WaitForEndOfFrame
+                yield return StartCoroutine(CabinCoverPhotoHelper.UploadFromRenderTexture(_renderTexture, url =>
+                {
+                    uploadedUrl = url;
+                }));
+            }
+            else
+            {
+                // 皮肤/姿势未变，直接复用已有封面 URL，跳过截图
+                uploadedUrl = _data.cover;
+            }
 
             if (string.IsNullOrEmpty(uploadedUrl))
             {

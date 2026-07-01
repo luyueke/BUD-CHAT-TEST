@@ -18,6 +18,7 @@ public class ShoppingCartRootView : MonoBehaviour
     CButton btn_close;
     Toggle tog_selectAll;//全选状态
     GameObject card;//开了月卡就显示
+    GameObject card1;//开了月卡就显示
     GameObject goldCard;//开了金卡就显示
     GameObject silverCard;//开了银卡就显示
     Text discount;//选中项打折后消耗货币总数
@@ -47,6 +48,8 @@ public class ShoppingCartRootView : MonoBehaviour
         btn_close = GameObjectEx.FindComponentByName<CButton>(transform, "btn_close");
         tog_selectAll = GameObjectEx.FindComponentByName<Toggle>(transform, "tog_selectAll");
         card = GameObjectEx.FindChildByName(transform, "card").gameObject;
+        card1 = GameObjectEx.FindChildByName(transform, "card1").gameObject;
+
         goldCard = GameObjectEx.FindChildByName(transform, "goldCard").gameObject;
         silverCard = GameObjectEx.FindChildByName(transform, "silverCard").gameObject;
         discount = GameObjectEx.FindComponentByName<Text>(transform, "discount");
@@ -227,12 +230,12 @@ public class ShoppingCartRootView : MonoBehaviour
         bool monthCard = mgr.IsAnyMonthCardActive();
         bool gold = mgr.IsAnyMonthGoldCardActive();
         bool silver = mgr.IsAnyMonthSilverCardActive();
-        if (card != null) card.SetActive(monthCard);//开了月卡就显示
+        if (card1 != null) card1.SetActive(monthCard);//开了月卡就显示
         if (goldCard != null) goldCard.SetActive(gold);//开了金卡就显示
         if (silverCard != null) silverCard.SetActive(!gold && silver);//开了银卡就显示(金卡优先)
     }
 
-    // 刷新选中项的货币总数:txt_price=打折前, discount=打折后(购物车一律粉币结算)
+    // 刷新选中项的货币总数:discount=实付金额, txt_price=月卡折扣说明("社区币银卡享X折  已减Y")
     private void RefreshPrice()
     {
         long total = 0;
@@ -241,14 +244,33 @@ public class ShoppingCartRootView : MonoBehaviour
         {
             if (selected[i] != null) total += selected[i].price;
         }
-        if (txt_price != null) txt_price.text = total.ToString();
-        if (discount != null) discount.text = ApplyMonthCardDiscount(total).ToString();
+        long discounted = ApplyMonthCardDiscount(total);
+        long saved = total - discounted;
+
+        // price 已是月卡折后价，直接展示，不再二次打折
+        if (discount != null) discount.text = total.ToString();
+
+        if (txt_price != null)
+        {
+            var mgr = AnniversaryMonthCardMgr.Inst;
+            if (mgr.IsAnyMonthCardActive() && saved > 0)
+            {
+                string cardType = mgr.IsAnyMonthGoldCardActive() ? "金卡" : "银卡";
+                string rateStr = (mgr.GetDiscountRate() * 10f).ToString("0.#");
+                txt_price.text = $"社区币{cardType}享{rateStr}折  已减{saved}";
+            }
+            else
+            {
+                txt_price.text = string.Empty;
+            }
+        }
+
         bool canBuy = total > 0;
         if (cbtn_buy != null) cbtn_buy.gameObject.SetActive(canBuy);
         if (cbtn_buy_disable != null) cbtn_buy_disable.SetActive(!canBuy);
+        LayoutRebuilder.ForceRebuildLayoutImmediate(card.transform.GetComponent<RectTransform>());
     }
 
-    // 购物车只用粉币结算,月卡开启时整笔总价按折扣率打折
     private long ApplyMonthCardDiscount(long price)
     {
         if (AnniversaryMonthCardMgr.Inst.IsAnyMonthCardActive())
@@ -300,8 +322,15 @@ public class ShoppingCartRootView : MonoBehaviour
             if (selected[i] != null) snapshot.Add(selected[i]);
 
         // 与原商城一致：发请求前本地先校验余额，不足直接弹对应充值/兑换面板
-        if (CheckBalanceInsufficient(snapshot)) return;
+        // PinkCoin 不足时传入 ugcIds/snapshot，供确认后静默兑换再购买
+        if (CheckBalanceInsufficient(snapshot, ugcIds, snapshot)) return;
 
+        ExecuteBuy(ugcIds, snapshot);
+    }
+
+    // 发起购买请求并处理结果
+    private void ExecuteBuy(List<string> ugcIds, List<ShoppingCartItemData> snapshot)
+    {
         var req = new BuyReq { ugcIds = ugcIds };
         NetworkManager.Inst.SendHttpRequest(
             HttpUrlDefine.BuyUgcPay, HttpMethod.POST,
@@ -309,29 +338,26 @@ public class ShoppingCartRootView : MonoBehaviour
             response =>
             {
                 AccountDataManager.Inst.BalanceInfo.Refresh();
-                // 广播购买成功（ShoppingCartManager 监听后自动移除，ShoppingCartRootView.OnBuySuccessRefresh 自动刷新）
                 for (int i = 0; i < ugcIds.Count; i++)
                     MessageHelper.Broadcast(MessageName.OnBuyUgcItemSuccess, ugcIds[i]);
                 RefreshPanelRedPoint();
 
-                // 弹成功提示："XX等X件物品购买成功"
                 if (snapshot.Count == 0) return;
                 var firstName = snapshot[0].name;
                 var content = $"{firstName}等{snapshot.Count}件物品购买成功！";
                 var panel = UIManager.Inst.OpenPanel<BuySuccessTipPanel>(PanelId.BuySuccessTipPanel);
                 if (panel == null) return;
-                // 优先用第一件的 GoodsData（有图标），无缓存时纯文字
                 var goods = ShoppingCartManager.Inst.GetGoodsData(snapshot[0].id);
-                if (goods != null)
-                    panel.InitData(goods, content);
-                else
-                    panel.InitData(content, null);
+                if (goods != null) panel.InitData(goods, content);
+                else panel.InitData(content, null);
             },
             _ => AccountDataManager.Inst.BalanceInfo.Refresh());
     }
 
     // 校验余额是否充足；不足则弹对应充值/兑换面板并返回 true（与原商城 Buy 逻辑一致）
-    private bool CheckBalanceInsufficient(List<ShoppingCartItemData> items)
+    // PinkCoin 不足时：弹 BuyTipsPanel，玩家确认后静默兑换再购买
+    private bool CheckBalanceInsufficient(List<ShoppingCartItemData> items,
+        List<string> ugcIds = null, List<ShoppingCartItemData> snapshot = null)
     {
         // 按货币类型汇总需要支付的总价（月卡折扣已体现在 item.price 里）
         var totalByCurrency = new Dictionary<int, long>();
@@ -363,10 +389,12 @@ public class ShoppingCartRootView : MonoBehaviour
                     badgePanel.SetData(CurrencyType.Badge, CurrencyType.Gem, needNum);
                     break;
                 case CurrencyType.PinkCoin:
+                    // 钻石够用时弹 BuyTipsPanel，静默兑换后直接购买；否则引导充值钻石
                     if (ExchangeCoinPanel.JudgePinkCoin(needNum))
                     {
-                        var pinkPanel = UIManager.Inst.OpenPanel<ExchangeCoinPanel>(PanelId.ExchangeCoinPanel);
-                        pinkPanel.SetData(CurrencyType.PinkCoin, CurrencyType.Gem, needNum);
+                        var tipsPanel = UIManager.Inst.OpenPanel<RechargeBuyTipsPanel>(PanelId.RechargeBuyTipsPanel);
+                        tipsPanel.Init(needNum, needNum, CurrencyType.PinkCoin,
+                            () => DoExchangeAndBuy(needNum, ugcIds, snapshot));
                     }
                     break;
                 case CurrencyType.Gem:
@@ -376,6 +404,33 @@ public class ShoppingCartRootView : MonoBehaviour
             return true;
         }
         return false;
+    }
+
+    // 静默兑换粉币后执行购买（玩家无感知）
+    private void DoExchangeAndBuy(int gemsToExchange,
+        List<string> ugcIds, List<ShoppingCartItemData> snapshot)
+    {
+        if (ugcIds == null || snapshot == null) return;
+        var req = new ExchangeReq
+        {
+            fromCurrency = (int)CurrencyType.Gem,
+            toCurrency   = (int)CurrencyType.PinkCoin,
+            exchangeNum  = gemsToExchange
+        };
+        NetworkManager.Inst.SendHttpRequest(HttpUrlDefine.exchangePay, HttpMethod.POST,
+            JsonConvert.SerializeObject(req),
+            _ =>
+            {
+                // 等余额刷新回调后再发购买请求，确保服务端兑换事务已提交
+                AccountDataManager.Inst.BalanceInfo.Refresh(() => ExecuteBuy(ugcIds, snapshot));
+            },
+            failData =>
+            {
+                AccountDataManager.Inst.BalanceInfo.Refresh();
+                var rsp = JsonConvert.DeserializeObject<HttpResponseRawData>(failData);
+                if (rsp != null && !string.IsNullOrEmpty(rsp.rmsg))
+                    TipPanel.ShowToast(rsp.rmsg);
+            });
     }
 
     private class BuyReq { public List<string> ugcIds; }

@@ -59,8 +59,9 @@ namespace Game.IncubationBoxScene
             base.OnCreate();
 
             // 订阅 cabin 草稿/发布列表变更消息
-            MessageHelper.AddListener(MessageName.OnCabinDraftListChange, OnDraftListChanged);
-            MessageHelper.AddListener(MessageName.OnCabinPublishListChange, OnPublishedListChanged);
+            MessageHelper.AddListener(MessageName.OnCabinSceneDraftListChange, OnDraftListChanged);
+            MessageHelper.AddListener(MessageName.OnCabinScenePublishListChange, OnPublishedListChanged);
+            MessageHelper.AddListener(MessageName.OnAssetDelete, OnAssetDelete);
 
             DetailView.InitUI();
             //InitBG();
@@ -98,8 +99,9 @@ namespace Game.IncubationBoxScene
         {
             base.OnDestroy();
 
-            MessageHelper.RemoveListener(MessageName.OnCabinDraftListChange, OnDraftListChanged);
-            MessageHelper.RemoveListener(MessageName.OnCabinPublishListChange, OnPublishedListChanged);
+            MessageHelper.RemoveListener(MessageName.OnCabinSceneDraftListChange, OnDraftListChanged);
+            MessageHelper.RemoveListener(MessageName.OnCabinScenePublishListChange, OnPublishedListChanged);
+            MessageHelper.RemoveListener(MessageName.OnAssetDelete, OnAssetDelete);
         }
 
         /// <summary>
@@ -196,6 +198,15 @@ namespace Game.IncubationBoxScene
             {
                 // 切换到已发布 Tab（index=1）
                 navigationBarTabs.SetSelect(1);
+            }
+        }
+
+
+        private void OnAssetDelete()
+        {
+            if (_curSelectType == StudioSubType.Published)
+            {
+                OnSelectView(StudioSubType.Published);
             }
         }
 

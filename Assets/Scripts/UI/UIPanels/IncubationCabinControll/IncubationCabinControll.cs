@@ -1,6 +1,7 @@
 using Game.BudBox;
 using Message;
 using Sirenix.OdinInspector;
+using System.Collections.Generic;
 using UI.Base;
 using UnityEngine;
 
@@ -48,7 +49,7 @@ namespace UI.UIPanels.IncubationCabin
             SettingPanel.onNewLinkBoxClick = OnNewLinkBoxClick;
             SettingPanel.onUnLinkBoxClick = OnUnLinkBoxClick;
 
-            MessageHelper.AddListener(MessageName.OnImportBoxCharacterFinish, RefreshCharacterData);
+            MessageHelper.AddListener(MessageName.OnImportBoxCharacterFinish, OnImportBoxCharacterFinish);
             MessageHelper.AddListener<bool>(MessageName.OnDetectionChange, OnDetectionChange);
             MessageHelper.AddListener(MessageName.OnDelectBoxCharacterFinish, OnDelectBoxCharacterFinish);
             MessageHelper.AddListener(MessageName.OnActiveBudBoxChanged, RefreshCharacterData);
@@ -76,6 +77,21 @@ namespace UI.UIPanels.IncubationCabin
         #endregion
 
         #region 数据拉取
+
+        /// <summary>
+        /// 角色导入/更换完成回调：刷新 UI 并广播角色变更，通知列表面板刷新对应 Item 模型
+        /// </summary>
+        private void OnImportBoxCharacterFinish()
+        {
+            RefreshCharacterData();
+
+            string deviceId = CabinBoxManager.Inst.GetCurrentDeviceId();
+
+            if (string.IsNullOrEmpty(deviceId))
+                return;
+
+            MessageHelper.Broadcast<string>(MessageName.OnBoxCharacterChanged, deviceId);
+        }
 
         /// <summary>
         /// 重置到控制台主视图（数据已由 CabinBoxManager 缓存，直接刷新显示）
@@ -211,6 +227,9 @@ namespace UI.UIPanels.IncubationCabin
                 return;
             }
 
+            // 唤醒交互埋点：通过设备在线/角色/频率校验后，操作真正生效时上报
+            ReportThinkingData("wake_up");
+
             var panel = UIManager.Inst.OpenPanel<CabinBoxCmdPanel>(PanelId.CabinBoxCmdPanel);
             // 点击播放：发送 MQTT 通知硬件播放口令，本地不再预览动画和语音
             panel.SetPlayVoiceCmd((cmd, onDone) =>
@@ -250,7 +269,10 @@ namespace UI.UIPanels.IncubationCabin
                 return;
             }
 
-            int call = CabinBoxManager.Inst.GetCall();
+            // 通话交互埋点：通过设备在线/角色/频率校验后，操作真正生效时上报
+            ReportThinkingData("call");
+
+            int  call          = CabinBoxManager.Inst.GetCall();
             long callBeginTime = _boxDate?.deviceState.callBeginTime ?? 0;
 
             if (call == 0)
@@ -278,7 +300,7 @@ namespace UI.UIPanels.IncubationCabin
             }
 
             var character = new CabinPublishData(_characterInfo);
-            var box = _boxDate;
+            var box       = _boxDate;
 
             UIManager.Inst.OpenPanel(PanelId.PorVideoCallNodePanel, character, box);
         }
@@ -373,6 +395,13 @@ namespace UI.UIPanels.IncubationCabin
             );
         }
 
+        public static void ReportThinkingData(string interactType)
+        {
+            Dictionary<string, object> trackData = new Dictionary<string, object>();
+            trackData.Add("interaction_type", interactType);
+            AnalyticsManager.Inst.Track(AnalyticsEventName.BUD_BOX_INTERACT, trackData);
+        }
+
         /// <summary>
         /// 关闭面板：若有未同步的数据变更，弹出确认框提示用户；否则直接关闭
         /// </summary>
@@ -402,7 +431,7 @@ namespace UI.UIPanels.IncubationCabin
         protected override void OnDestroy()
         {
             CabinBoxManager.Inst.ClearBudBoxData();
-            MessageHelper.RemoveListener(MessageName.OnImportBoxCharacterFinish, RefreshCharacterData);
+            MessageHelper.RemoveListener(MessageName.OnImportBoxCharacterFinish, OnImportBoxCharacterFinish);
             MessageHelper.RemoveListener<bool>(MessageName.OnDetectionChange, OnDetectionChange);
             MessageHelper.RemoveListener(MessageName.OnDelectBoxCharacterFinish, OnDelectBoxCharacterFinish);
             MessageHelper.RemoveListener(MessageName.OnActiveBudBoxChanged, RefreshCharacterData);
@@ -415,8 +444,7 @@ namespace UI.UIPanels.IncubationCabin
         [Button("绑定测试")]
         void BindTest()
         {
-            //  CabinBoxManager.Inst.BindCabinBox("BUD-E02EDBF8"); //009
-            CabinBoxManager.Inst.BindCabinBox("BUD-13EDD13E"); //012
+            CabinBoxManager.Inst.BindCabinBox("deviceID222");
         }
         [Button("解绑测试")]
         void UnBindTest()
@@ -435,13 +463,5 @@ namespace UI.UIPanels.IncubationCabin
             CabinBoxManager.Inst.SendMqttMessage(MqttMsgOperType.closeBacklight);
         }
 
-        [Button("tttt")]
-        void tt()
-        {
-            UIManager.Inst.OpenPanel(PanelId.IncubationCabinWifiSetting, "CabinControll");
-
-            // UIManager.Inst.OpenPanel(PanelId.IncubationCabinWifiSetting);
-
-        }
     }
 }

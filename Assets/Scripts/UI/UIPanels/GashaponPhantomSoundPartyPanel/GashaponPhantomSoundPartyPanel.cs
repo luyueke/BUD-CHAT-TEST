@@ -110,6 +110,31 @@ public class GashaponPhantomSoundPartyPanel : BaseGashaponView
 
     private const string videoPath = "Assets/Loadable/Demand3D/ResVideo/phantomSound/phantomSound.mp4";
 
+    // 兑换商店 SpecialItem 背景色按等级取色：服务端 ExchangeData 不下发 Level，按 Id 写死。
+    // Level 取值对应 GashaponPriceItem.levelColor 的 key：1=FFA95A 2=9F72FF 3=92BEFF 4=FF785A 5=7BED72；
+    // 填 0(或不在表内) 则命中默认色 levelColor[3]。TODO: 待策划确认各 item 等级后替换 0。
+    private static readonly Dictionary<string, int> _exchangeItemLevelMap = new Dictionary<string, int>()
+    {
+        { "160100009", 1 }, // 霓虹歌台
+        { "160100010", 1 }, // 浮光印象
+        { "160100011", 1 }, // 节拍回廊
+        { "34700001", 1 },
+        { "10500085", 1 },
+        { "190000033", 1 },
+        { "180100010", 1 },
+        { "40200568", 1 },
+        { "11400092", 1 },
+        { "40100578", 2 },
+        { "40200566", 2 },
+        { "40200565", 2 },
+        { "40200567", 2 },
+        { "40200560", 3 },
+        { "40200561", 3 },
+        { "40200562", 3 },
+        { "40200563", 3 },
+        { "31600001", 3 },
+    };
+
     public override void OnCreate(string id)
     {
         base.OnCreate(id);
@@ -642,16 +667,42 @@ public class GashaponPhantomSoundPartyPanel : BaseGashaponView
     // 是否已拥有 panelInfoList 中任意一台载具(打折前提)
     private bool OwnsAnyPanelVehicle() => OwnedPanelVehicleCount() > 0;
 
-    private string ExchangeRedDotSeenKey => "phantom_exchange_item_clicked_" + GetBaseGashaponId();
+    // 兑换 item "已点击(已读)"状态按载具 pgcId 分别持久化：点击过的载具永久不再显示红点
+    private string ExchangeItemSeenKey(string pgcId) => "phantom_exchange_item_clicked_" + GetBaseGashaponId() + "_" + pgcId;
 
-    // 红点：已拥有至少一台、但尚未集齐三台载具时显示；用户点击过兑换列表 item 后永久消失
+    // 某载具是否需要红点：处于折扣态(已拥有任一载具) 且 该载具未拥有 且 未被点击过
+    private bool IsVehicleRedDotPending(string pgcId)
+    {
+        if (string.IsNullOrEmpty(pgcId)) return false;
+        if (!OwnsAnyPanelVehicle()) return false;            // 折扣前提：已拥有任一载具
+        if (AssetsDataManager.IsOwned(pgcId)) return false;  // 已拥有的载具不提示
+        if (PlayerPrefs.GetInt(ExchangeItemSeenKey(pgcId), 0) == 1) return false; // 已点击过
+        return true;
+    }
+
+    // 已点击过(已读)的载具 pgcId 集合，传给兑换面板控制各 item 红点
+    private HashSet<string> GetExchangeSeenVehicleIds()
+    {
+        var set = new HashSet<string>();
+        foreach (var info in panelInfoList)
+        {
+            if (info == null || string.IsNullOrEmpty(info.pgcId)) continue;
+            if (PlayerPrefs.GetInt(ExchangeItemSeenKey(info.pgcId), 0) == 1)
+                set.Add(info.pgcId);
+        }
+        return set;
+    }
+
+    // 入口红点：只要还存在任意一台"待点击"的折扣载具就显示
     private void RefreshExchangeRedDot()
     {
         if (exchangeRedDot == null) return;
-        int owned = OwnedPanelVehicleCount();
-        bool hasPendingDiscount = owned > 0 && owned < panelInfoList.Count;
-        bool alreadySeen = PlayerPrefs.GetInt(ExchangeRedDotSeenKey, 0) == 1;
-        exchangeRedDot.SetActive(hasPendingDiscount && !alreadySeen);
+        bool anyPending = false;
+        foreach (var info in panelInfoList)
+        {
+            if (info != null && IsVehicleRedDotPending(info.pgcId)) { anyPending = true; break; }
+        }
+        exchangeRedDot.SetActive(anyPending);
     }
     private void OnGiftBtnClick()
     {
@@ -703,7 +754,8 @@ public class GashaponPhantomSoundPartyPanel : BaseGashaponView
             isPhantomSoundParty = true,
             phantomVehicleOwnedDiscount = OwnsAnyPanelVehicle(),
             phantomVehiclePgcIds = GetPanelVehiclePgcIds(),
-            phantomExchangeRedDotSeen = PlayerPrefs.GetInt(ExchangeRedDotSeenKey, 0) == 1,
+            phantomExchangeSeenIds = GetExchangeSeenVehicleIds(),
+            specialItemLevelMap = _exchangeItemLevelMap,
         });
 
         exchangePanel.SetAnimPreviewBtnColor(new Color32(210, 73, 73, 255), new Color32(255, 192, 31, 255), new Color32(255, 86, 96, 255));
@@ -711,10 +763,12 @@ public class GashaponPhantomSoundPartyPanel : BaseGashaponView
         // 从兑换页返回：重建角色（内部会先清理，保证只有一套模型）再加载载具
         // 兑换载具后可能改变了任务进度，重新拉取服务器数据刷新 RewardItemList
         exchangePanel.onCloseCallback = () => { InitCharacterWrapper(); LoadVehicle(); GetSeverRefresh(); };
-        exchangePanel.onSpecialItemClicked = () =>
+        exchangePanel.onSpecialItemClicked = (clickedVehicleId) =>
         {
-            PlayerPrefs.SetInt(ExchangeRedDotSeenKey, 1);
-            if (exchangeRedDot != null) exchangeRedDot.SetActive(false);
+            // 玩家点击了某台有红点的载具：仅该载具永久标记已读，其余载具红点保留
+            if (!string.IsNullOrEmpty(clickedVehicleId))
+                PlayerPrefs.SetInt(ExchangeItemSeenKey(clickedVehicleId), 1);
+            RefreshExchangeRedDot();
         };
     }
 

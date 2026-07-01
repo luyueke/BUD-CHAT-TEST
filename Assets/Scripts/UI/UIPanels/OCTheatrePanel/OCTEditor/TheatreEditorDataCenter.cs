@@ -565,6 +565,13 @@ public class TheatreEditorDataCenter
         OnDataChanged?.Invoke();
     }
 
+    public void SetSectionHideAvatar(POCTheatreSection section, bool hideAvatar)
+    {
+        if (section == null) return;
+        section.HideAvatar = hideAvatar;
+        OnDataChanged?.Invoke();
+    }
+
     public void SetSectionBackground(POCTheatreSection section, int backgroundIndex)
     {
         if (section == null) return;

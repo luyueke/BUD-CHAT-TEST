@@ -376,21 +376,12 @@ public class AssetDetailPanel : BasePanel<AssetDetailPanel>
 
             var boxRsp = JsonConvert.DeserializeObject<CharacterBoxDetailData>(content);
             if (boxRsp?.characterBoxInfo == null) return;
-
+            _baseInfo = boxRsp.characterBoxInfo;
             _creatorInfo = boxRsp.creator;
             _interactInfo = boxRsp.interactInfo;
             _relationShipInfo = boxRsp.relationShipInfo;
             _paymentInfo = boxRsp.characterBoxInfo.paymentInfo;
             _skinInfo = new SkinInfo { subType = 0 };
-            _baseInfo = new UgcBaseInfo
-            {
-                id          = boxRsp.characterBoxInfo.id,
-                name        = boxRsp.characterBoxInfo.name,
-                desc        = boxRsp.characterBoxInfo.desc,
-                cover       = boxRsp.characterBoxInfo.cover,
-                creator     = boxRsp.characterBoxInfo.creator,
-                designCode  = boxRsp.characterBoxInfo.designCode,
-            };
             _previewButton.SetData(_curDetailType, _baseInfo, boxRsp.characterBoxInfo);
             _rmoteCover.gameObject.SetActive(true);
             if (!string.IsNullOrEmpty(boxRsp.characterBoxInfo.cover))
@@ -925,6 +916,15 @@ public class AssetDetailPanel : BasePanel<AssetDetailPanel>
                     };
                     deleteHeadUrl = HttpUrlDefine.SetVehicle;
                     reqParam = JsonConvert.SerializeObject(setVehicleReq);
+                    break;
+                case AssetDetailType.CharacterBox:
+                    CharacterBoxSetRequestData boxSetRequestData = new CharacterBoxSetRequestData()
+                    {
+                        characterBoxInfo = (CharacterBoxInfo)_baseInfo,
+                        setType = SetType.Delete
+                    };
+                    deleteHeadUrl = HttpUrlDefine.CharacterBoxSet;
+                    reqParam = JsonConvert.SerializeObject(boxSetRequestData);
                     break;
             }
 

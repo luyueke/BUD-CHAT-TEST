@@ -1210,6 +1210,8 @@ namespace UI.UIPanels.FittingRoom
             }
             classSelected = shoppingCart;
             UI.classList.SetClass(classSelected, classDatas);
+            UI.classList.HideClass((int)OtherClass.UgcTheme);
+            UI.classList.HideClass((int)OtherClass.LikeList);
         }
 
         // 点击 ShoppingCartRoot 的 btn_close 时调用：从 ClassList 移除 ShoppingCart 项
@@ -1224,6 +1226,8 @@ namespace UI.UIPanels.FittingRoom
                 classSelected = classDatas.Count > 0 ? classDatas[0] : null;
             }
             UI.classList.SetClass(classSelected, classDatas);
+            UI.classList.ShowClass((int)OtherClass.UgcTheme);
+            UI.classList.ShowClass((int)OtherClass.LikeList);
         }
 
         /// <summary>
@@ -1886,6 +1890,7 @@ namespace UI.UIPanels.FittingRoom
         // 当前 OC（设子）原始衣服的 avatarJson 快照——穿套装不会污染它，脱套装时用来恢复
         private string _ocBaselineJson;
         private FittingRoomAdapter ActiveList => UI.assetsList;
+        private bool _bundleScrollListenerActive;
         protected const int MusicScoreId = 60001;
         protected const int UgcEmote = 90100;
         protected const int UgcPose = 110100;
@@ -2178,6 +2183,7 @@ namespace UI.UIPanels.FittingRoom
         public override void Exit()
         {
             base.Exit();
+            UnregisterBundleScrollListener();
             UI.classList.SetRedDot(new HashSet<int>());
         }
 
@@ -2456,6 +2462,7 @@ namespace UI.UIPanels.FittingRoom
             }
 
             _isSwitchingCategory = true;
+            UnregisterBundleScrollListener();
             // 套装：直接显示拥有列表，不分 Bud/Ugc，也不分 Create/Buy
             if (subType == AvatarSubType.Bundle)
             {
@@ -2465,6 +2472,7 @@ namespace UI.UIPanels.FittingRoom
                 assetsDatas.SetData(dataHandler.GetGoodsData(GetSelectedClassType()), null);
                 ActiveList.Data.ResetItems(assetsDatas.Count());
                 OnRedDotUpdate();
+                RegisterBundleScrollListener();
                 _resetFlagCoroutine = UI.StartCoroutine(ResetSwitchingFlagCoroutine());
                 return;
             }
@@ -2478,6 +2486,28 @@ namespace UI.UIPanels.FittingRoom
             yield return null;
             _isSwitchingCategory = false;
             _resetFlagCoroutine = null;
+        }
+
+        private void RegisterBundleScrollListener()
+        {
+            if (_bundleScrollListenerActive) return;
+            ActiveList.OnNearEnd = OnBundleNearEnd;
+            _bundleScrollListenerActive = true;
+            LoggerUtils.Log("[BundleScroll] 注册 OnNearEnd 监听");
+        }
+
+        private void UnregisterBundleScrollListener()
+        {
+            if (!_bundleScrollListenerActive) return;
+            ActiveList.OnNearEnd = null;
+            _bundleScrollListenerActive = false;
+        }
+
+        private void OnBundleNearEnd()
+        {
+            LoggerUtils.Log($"[BundleScroll] 触底，hasMore={dataHandler.HasMoreBundlePages}");
+            if (dataHandler.HasMoreBundlePages)
+                dataHandler.LoadNextBundlePage();
         }
 
         internal int GetSelectedClassType()

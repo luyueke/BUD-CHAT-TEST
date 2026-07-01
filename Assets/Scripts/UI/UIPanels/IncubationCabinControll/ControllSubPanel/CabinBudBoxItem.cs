@@ -44,7 +44,7 @@ namespace UI.UIPanels.IncubationCabin
         private void OnDestroy()
         {
             // 销毁角色模型，防止内存泄漏
-            DestroyCharacter();
+            DestroyBoxModel();
             MessageHelper.RemoveListener<string>(MessageName.OnBoxDeviceStateChanged, OnBoxDeviceStateChanged);
             MessageHelper.RemoveListener<string>(MessageName.OnBudBoxNameChange, RefreshBoxNameText);
             MessageHelper.RemoveListener<string>(MessageName.OnBoxCharacterChanged, OnBoxCharacterChanged);
@@ -60,68 +60,56 @@ namespace UI.UIPanels.IncubationCabin
             RefreshStateTxt();
             RefreshBoxNameText();
 
-            // 有角色数据时生成模型，否则销毁已有模型
-            if (data.characterInfo != null)
-            {
-                CreateCharacter(data.characterInfo);
-            }
-            else
-            {
-                DestroyCharacter();
-            }
+            CreateBoxModel();
         }
 
         /// <summary>
         /// 通过 BudBoxModel 异步创建角色模型并加载盒子场景，
         /// 与 CabinControllBoxPanel.CreateCharacter() 保持一致。
         /// </summary>
-        /// <param name="data">当前绑定的角色 UGC 信息</param>
-        private void CreateCharacter(CabinCharacterUgcInfo data)
+        private void CreateBoxModel()
         {
             _budBoxModel.Clear();
 
+            // 首次创建时动态生成 RenderTexture（512×512，ARGB32，depth 16）
+            // 若已存在则复用，避免重复分配 GPU 资源
+            if (_renderTexture == null)
+            {
+                _renderTexture = new RenderTexture(512, 512, 16, RenderTextureFormat.ARGB32);
+                _renderTexture.wrapMode = TextureWrapMode.Clamp;
+                _renderTexture.filterMode = FilterMode.Bilinear;
+            }
+
+            if (PhotoCamera != null)
+            {
+                PhotoCamera.clearFlags = CameraClearFlags.SolidColor;
+                PhotoCamera.backgroundColor = Color.clear;
+                PhotoCamera.targetTexture = _renderTexture;
+            }
+
+            if (PreviewImage != null)
+            {
+                PreviewImage.texture = _renderTexture;
+            }
+
+            _budBoxModel.LoadBoxScene(_data?.boxInfo?.metaDataUrl);
             // 通过 CabinBoxManager 统一查找与 DeviceState.skinPackId 匹配的皮肤包
             CabinBoxManager.Inst.GetSkinPackInfo((defaultSkin) =>
             {
                 // 回调内再次清理，防止多次快速调用时出现残留实例
-                _budBoxModel.Clear();
-
                 if (defaultSkin == null)
                 {
                     LoggerUtils.Log($"[CabinBudBoxItem] 未找到匹配的皮肤包，设备：{_data?.deviceId}");
                     return;
                 }
-
                 _budBoxModel.SetupCharacterFromSkinPack(defaultSkin);
-                _budBoxModel.LoadBoxScene(_data?.boxInfo?.metaDataUrl);
-
-                // 首次创建时动态生成 RenderTexture（512×512，ARGB32，depth 16）
-                // 若已存在则复用，避免重复分配 GPU 资源
-                if (_renderTexture == null)
-                {
-                    _renderTexture = new RenderTexture(512, 512, 16, RenderTextureFormat.ARGB32);
-                    _renderTexture.wrapMode = TextureWrapMode.Clamp;
-                    _renderTexture.filterMode = FilterMode.Bilinear;
-                }
-
-                if (PhotoCamera != null)
-                {
-                    PhotoCamera.clearFlags = CameraClearFlags.SolidColor;
-                    PhotoCamera.backgroundColor = Color.clear;
-                    PhotoCamera.targetTexture = _renderTexture;
-                }
-
-                if (PreviewImage != null)
-                {
-                    PreviewImage.texture = _renderTexture;
-                }
             }, _data.deviceId); // 传入当前 Item 对应的设备 ID，精确查找该设备的皮肤包
         }
 
         /// <summary>
         /// 销毁角色和 box 模型，并释放动态创建的 RenderTexture
         /// </summary>
-        private void DestroyCharacter()
+        private void DestroyBoxModel()
         {
             _budBoxModel.Clear();
 
@@ -177,6 +165,19 @@ namespace UI.UIPanels.IncubationCabin
         }
 
         /// <summary>
+        /// 若本 Item 对应的设备 ID 与传入 deviceId 匹配，则重建角色和盒子预览模型。
+        /// 供 IncubationCabinBoxMain 在收到角色/场景变更消息时调用。
+        /// </summary>
+        /// <param name="deviceId">触发变更的设备 ID</param>
+        public void RefreshModelIfMatch(string deviceId)
+        {
+            if (_data == null || _data.deviceId != deviceId)
+                return;
+
+            CreateBoxModel();
+        }
+
+        /// <summary>
         /// Box 角色变更回调：当前 Item 对应设备的角色（或皮肤）发生变化时，重建角色预览模型。
         /// </summary>
         /// <param name="deviceId">触发变更的设备 ID</param>
@@ -184,15 +185,7 @@ namespace UI.UIPanels.IncubationCabin
         {
             if (_data == null || _data.deviceId != deviceId)
                 return;
-
-            if (_data.characterInfo != null)
-            {
-                CreateCharacter(_data.characterInfo);
-            }
-            else
-            {
-                DestroyCharacter();
-            }
+            CreateBoxModel();
         }
 
         /// <summary>

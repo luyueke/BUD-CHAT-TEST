@@ -1,6 +1,8 @@
 using Game.BudBox;
 using Message;
+using UI.UIPanels.IncubationCabin; // 交互埋点上报方法 IncubationCabinControll.ReportThinkingData
 using UnityEngine;
+using UnityEngine.EventSystems; // 滑动条松手回调参数 PointerEventData
 using UnityEngine.UI;
 
 /// <summary>
@@ -47,6 +49,9 @@ public class CabinControllExperiencePanel : CabinControllSettleSubPanel
     private int _lastSentVolume = -1;     // 上次发送 MQTT 时的音量值，-1 表示未初始化
     private int _lastSentBrightness = -1; // 上次发送 MQTT 时的亮度值，-1 表示未初始化
 
+    private bool _volumeChangedDuringDrag = false;     // 本次拖动音量是否发生过变化（松手时据此决定是否上报埋点）
+    private bool _brightnessChangedDuringDrag = false; // 本次拖动亮度是否发生过变化（松手时据此决定是否上报埋点）
+
     // 分钟选项数组，下标对应 Dropdown 各选项（倒序：45/30/15/00）
     private readonly int[] MinuteArr = new int[4] { 45, 30, 15, 0 };
 
@@ -72,9 +77,15 @@ public class CabinControllExperiencePanel : CabinControllSettleSubPanel
 
         // ─── 音量滑动条 初始化 ───
         VolumeSlider.onValueChanged.AddListener(OnVolumeChanged);
+        // 监听松手事件：拖动结束时若本次确实调过音量，则上报一次埋点
+        var volumeUpListener = VolumeSlider.gameObject.AddComponent<ClickEventListener>();
+        volumeUpListener.AddPointerUpHandler(OnVolumeSliderPointerUp);
 
         // ─── 亮度滑动条 初始化 ───
         BrightnessSlider.onValueChanged.AddListener(OnBrightnessChanged);
+        // 监听松手事件：拖动结束时若本次确实调过亮度，则上报一次埋点
+        var brightnessUpListener = BrightnessSlider.gameObject.AddComponent<ClickEventListener>();
+        brightnessUpListener.AddPointerUpHandler(OnBrightnessSliderPointerUp);
 
         // ─── 屏幕保护 初始化 ───
         ProtectScreenTg.onValueChanged.AddListener(OnProtectScreenTg);
@@ -109,6 +120,9 @@ public class CabinControllExperiencePanel : CabinControllSettleSubPanel
             TipPanel.ShowToast("设备离线无法设置!");
             return;
         }
+
+        // 静音开关交互埋点：开/关两态均上报
+        IncubationCabinControll.ReportThinkingData("mute_toggle");
 
         if (isOn)
         {
@@ -259,6 +273,9 @@ public class CabinControllExperiencePanel : CabinControllSettleSubPanel
         int intValue = (int)value;
         CabinBoxManager.Inst.SetBoxVolume(intValue);
 
+        // 本次拖动确实改变了音量，置脏标记（松手时再上报埋点，避免拖动过程频繁上报）
+        _volumeChangedDuringDrag = true;
+
         // 变化超过 1 才发送，避免滑动过程中每帧发包
         if (Mathf.Abs(intValue - _lastSentVolume) > 1)
         {
@@ -272,12 +289,41 @@ public class CabinControllExperiencePanel : CabinControllSettleSubPanel
         int intValue = (int)value;
         CabinBoxManager.Inst.SetBoxIuminance(intValue);
 
+        // 本次拖动确实改变了亮度，置脏标记（松手时再上报埋点，避免拖动过程频繁上报）
+        _brightnessChangedDuringDrag = true;
+
         // 变化超过 1 才发送，避免滑动过程中每帧发包
         if (Mathf.Abs(intValue - _lastSentBrightness) > 1)
         {
             _lastSentBrightness = intValue;
             CabinBoxManager.Inst.SendMqttMessage(MqttMsgOperType.set_brightness);
         }
+    }
+
+    /// <summary>
+    /// 音量滑动条松手回调：本次拖动确实调整过音量才上报一次「调整音量」埋点，随后复位脏标记。
+    /// 离线时滑动条不可交互、不会触发 OnVolumeChanged，脏标记保持 false，不会误报。
+    /// </summary>
+    private void OnVolumeSliderPointerUp(GameObject go, PointerEventData eventData)
+    {
+        if (!_volumeChangedDuringDrag)
+            return;
+
+        _volumeChangedDuringDrag = false;
+        IncubationCabinControll.ReportThinkingData("volume_adjust");
+    }
+
+    /// <summary>
+    /// 亮度滑动条松手回调：本次拖动确实调整过亮度才上报一次「调整亮度」埋点，随后复位脏标记。
+    /// 离线时滑动条不可交互、不会触发 OnBrightnessChanged，脏标记保持 false，不会误报。
+    /// </summary>
+    private void OnBrightnessSliderPointerUp(GameObject go, PointerEventData eventData)
+    {
+        if (!_brightnessChangedDuringDrag)
+            return;
+
+        _brightnessChangedDuringDrag = false;
+        IncubationCabinControll.ReportThinkingData("brightness_adjust");
     }
 
     // Dropdown 展开时提升休眠图标的渲染层级，防止被 Dropdown List 遮挡
@@ -331,6 +377,8 @@ public class CabinControllExperiencePanel : CabinControllSettleSubPanel
             CabinBoxManager.Inst.SetProtectScreenState(1);
             CabinBoxManager.Inst.SendMqttMessage(MqttMsgOperType.set_protectScreenState);
             RefreshProtectScreenUI();
+            // 屏幕保护开关交互埋点：开启路径
+            IncubationCabinControll.ReportThinkingData("screen_saver_toggle");
         }
         else
         {
@@ -340,8 +388,8 @@ public class CabinControllExperiencePanel : CabinControllSettleSubPanel
             // 弹出二确弹窗
             var panel = UIManager.Inst.OpenPanel<CommonBoxConfirmWithTitlePanel>(PanelId.CommonBoxConfirmWithTitlePanel);
             panel.SetTextAndAction(
-                "提示",
-                "确定要关闭屏幕保护吗？",
+                "关闭屏幕保护功能",
+                "长时间保持屏幕亮起会严重降低BOX使用寿命\n是否要确认关闭?",
                 "确定",
                 "取消",
                 confirmClick: () =>
@@ -350,6 +398,8 @@ public class CabinControllExperiencePanel : CabinControllSettleSubPanel
                     CabinBoxManager.Inst.SetProtectScreenState(0);
                     CabinBoxManager.Inst.SendMqttMessage(MqttMsgOperType.set_protectScreenState);
                     RefreshProtectScreenUI();
+                    // 屏幕保护开关交互埋点：关闭路径（用户二次确认后）
+                    IncubationCabinControll.ReportThinkingData("screen_saver_toggle");
                 },
                 cancelClick: () =>
                 {
@@ -382,6 +432,9 @@ public class CabinControllExperiencePanel : CabinControllSettleSubPanel
         // 切换为定时熄屏模式（0）
         CabinBoxManager.Inst.SetProtectScreenSwith(0);
         CabinBoxManager.Inst.SendMqttMessage(MqttMsgOperType.set_protectScreenSwith);
+
+        // 定时熄屏交互埋点：仅在选中该模式（isOn）时上报一次
+        IncubationCabinControll.ReportThinkingData("screen_off_scheduled");
 
         // 同步模式 Toggle 状态，不触发回调
         AutoScreenTg.SetIsOnWithoutNotify(false);
@@ -422,6 +475,9 @@ public class CabinControllExperiencePanel : CabinControllSettleSubPanel
         // 切换为自动熄屏模式（1）
         CabinBoxManager.Inst.SetProtectScreenSwith(1);
         CabinBoxManager.Inst.SendMqttMessage(MqttMsgOperType.set_protectScreenSwith);
+
+        // 自动熄屏交互埋点：仅在选中该模式（isOn）时上报一次
+        IncubationCabinControll.ReportThinkingData("screen_off_auto");
 
         // 同步模式 Toggle 状态，不触发回调
         ScheduledScreenTg.SetIsOnWithoutNotify(false);
@@ -531,6 +587,9 @@ public class CabinControllExperiencePanel : CabinControllSettleSubPanel
         int minutes = AutoTimerArr[index];
         CabinBoxManager.Inst.SetProtectScreenAuto(minutes);
         CabinBoxManager.Inst.SendMqttMessage(MqttMsgOperType.set_protectScreenAuto);
+
+        // 自动熄屏时间调整交互埋点
+        IncubationCabinControll.ReportThinkingData("screen_off_auto_time_adjust");
     }
 
     /// <summary>

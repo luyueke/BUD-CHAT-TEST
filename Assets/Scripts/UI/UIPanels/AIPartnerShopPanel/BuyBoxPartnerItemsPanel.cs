@@ -8,6 +8,7 @@ using Message;
 using Newtonsoft.Json;
 using UI.Base;
 using UI.BaseWidgets;
+using UI.UIPanels.IncubationCabin;
 using UnityEngine;
 using UnityEngine.UI;
 using xasset;
@@ -19,15 +20,12 @@ public class BuyBoxPartnerItemsPanel : BasePanel<BuyBoxPartnerItemsPanel>
     [SerializeField] private Text PriceTxt;
     [SerializeField] private Transform BoxModelRoot;
     [SerializeField] private AvatarCameraController AvatarCameraController;
+    // 盒子 3D 预览组件，统一负责盒子模型生成、纹理加载与资源释放（放置在 BoxModelRoot 节点下）
+    [SerializeField] private BudBoxModel BudBoxModel;
 
     private CharacterBoxInfo _data;
     private Action _onSuccess;
     private Action _onClose;
-    private GameObject _boxModel;
-    private readonly List<Texture2D> _boxTextures = new List<Texture2D>();
-
-    private const string BoxModelPath =
-        "Assets/Loadable/Avatar/UGCRolePart/ModelPrefab/UGCBoxScene/qiye_ugcBreedingFarm_1_3d.prefab";
 
     public override void OnCreate()
     {
@@ -49,7 +47,14 @@ public class BuyBoxPartnerItemsPanel : BasePanel<BuyBoxPartnerItemsPanel>
         _onClose  = args?.Length > 2 ? args[2] as Action : null;
 
         PriceTxt.text = _data.paymentInfo?.price.ToString() ?? "0";
-        LoadBoxModel(_data);
+
+        // 旋转目标仍指向 BoxModelRoot（BudBoxModel 节点置于其下），交由 BudBoxModel 加载盒子模型
+        AvatarCameraController.RotateTarget = BoxModelRoot;
+
+        if (BudBoxModel != null)
+        {
+            BudBoxModel.LoadBoxScene(_data.metaDataUrl);
+        }
     }
 
     public override void OnHidden()
@@ -57,80 +62,11 @@ public class BuyBoxPartnerItemsPanel : BasePanel<BuyBoxPartnerItemsPanel>
         base.OnHidden();
         _onClose?.Invoke();
         _onClose = null;
-        CleanupBoxModel();
-    }
 
-    private void LoadBoxModel(CharacterBoxInfo info)
-    {
-        CleanupBoxModel();
-
-        var prefab = Loader.Load<GameObject>(BoxModelPath);
-        if (prefab == null) return;
-
-        _boxModel = prefab.Instantiate(BoxModelRoot);
-        _boxModel.transform.localPosition = Vector3.zero;
-        AvatarCameraController.RotateTarget = BoxModelRoot;
-
-        if (string.IsNullOrEmpty(info.metaDataUrl)) return;
-
-        var cachedModel = _boxModel;
-        var request = Asset.LoadRemoteAssetAsync(info.metaDataUrl);
-        if (request == null) return;
-        request.completed += _ =>
+        // 释放盒子模型及其动态纹理，防止内存泄漏
+        if (BudBoxModel != null)
         {
-            if (cachedModel == null || request.result != Request.Result.Success) return;
-            var text = System.Text.Encoding.UTF8.GetString(request.asset);
-            if (string.IsNullOrEmpty(text)) return;
-            var boxData = JsonConvert.DeserializeObject<UGCBoxSceneData>(text);
-            if (boxData != null) ApplyBoxTextures(cachedModel, boxData);
-        };
-    }
-
-    private void CleanupBoxModel()
-    {
-        foreach (var t in _boxTextures) if (t != null) Destroy(t);
-        _boxTextures.Clear();
-        if (_boxModel != null)
-        {
-            Destroy(_boxModel);
-            _boxModel = null;
-        }
-    }
-
-    private void ApplyBoxTextures(GameObject model, UGCBoxSceneData boxData)
-    {
-        if (boxData?.parts == null || boxData.parts.Count == 0) return;
-        var renderers = model.GetComponentsInChildren<Renderer>(true);
-        if (renderers.Length == 0) return;
-
-        foreach (var part in boxData.parts)
-        {
-            if (part?.pixels == null || part.pixels.Count == 0) continue;
-            int rendererIndex = part.type - 1;
-            if (rendererIndex < 0 || rendererIndex >= renderers.Length) continue;
-
-            int canvasSize = part.pixels.Count <= 1024 ? 32 : 64;
-            var colors = new Color32[canvasSize * canvasSize];
-            foreach (var pixel in part.pixels)
-            {
-                var pos = DataUtil.DeSerializeVector2Int(pixel.p);
-                Color col = DataUtil.DeSerializeColor(pixel.col);
-                int idx = pos.y * canvasSize + pos.x;
-                if (idx >= 0 && idx < colors.Length) colors[idx] = col;
-            }
-
-            var tex = new Texture2D(canvasSize, canvasSize, TextureFormat.RGBA32, false);
-            tex.SetPixels32(colors);
-            tex.Apply();
-            _boxTextures.Add(tex);
-
-            var mat = renderers[rendererIndex].material;
-            if (mat.shader.name == "Universal Render Pipeline/Lit")
-                mat.SetTexture("_BaseMap", tex);
-            else if (mat.shader.name == "bud/patterns_ugc_ARI")
-                mat.SetTexture("_patterns_tex", tex);
-            else
-                mat.SetTexture("_MainTex", tex);
+            BudBoxModel.Clear();
         }
     }
 

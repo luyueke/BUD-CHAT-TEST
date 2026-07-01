@@ -21,6 +21,7 @@ public class AIBuddyStandbyBehaviour : MonoBehaviour
     private string _playerId; // buddy 所属玩家 uid（自己端=自己uid，其他端=对方uid）
     private bool _onVehicle;  // buddy 正坐在载具上时暂停待机（载具驱动乘客动画）
     private bool _vehicleStopped; // 上车时是否已停掉当前待机动画（只停一次，下车复位）
+    private bool _busyStopped;   // 进入 LinkEmote 等忙碌状态时是否已停掉待机动画（只停一次，空闲后复位）
 
     private readonly List<pEmoteData> _loopList = new List<pEmoteData>();    // 主动画(循环)
     private readonly List<pEmoteData> _performList = new List<pEmoteData>(); // 表演动画(非循环)
@@ -127,14 +128,21 @@ public class AIBuddyStandbyBehaviour : MonoBehaviour
         }
 
         // buddy 正在牵手/双人动作/emote 等状态时，动画由状态机接管，待机暂停；
+        // 进入忙碌的第一帧停掉当前待机动画及其特效物体，避免动画被中断后特效残留。
         // 空闲后回到 Waiting(duration=0) 立即从主动画恢复。
         if (IsBusy())
         {
+            if (!_busyStopped)
+            {
+                StopCurrentEmote();
+                _busyStopped = true;
+            }
             _phase = Phase.Waiting;
             _timer = 0f;
             _phaseDuration = 0f;
             return;
         }
+        _busyStopped = false;
 
         _timer += Time.deltaTime;
 

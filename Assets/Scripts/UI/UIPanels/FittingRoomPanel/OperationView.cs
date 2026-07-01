@@ -9,8 +9,12 @@ using GameData;
 using GameData.BaseInfo;
 using GameData.PgcData;
 using Message;
+using Network;
+using Network.Http;
+using Newtonsoft.Json;
 using Product;
 using UI.BaseWidgets;
+using UI.UIPanels.RechargePanel;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -77,18 +81,14 @@ namespace UI.UIPanels.FittingRoom
             buyComp = BuyButton.GetComponent<BuyButton>();
             BuyButton.onClick.AddListener(() =>
             {
-                OperationInvoke(Operation.Buy);
-                //上报UGC商城埋点
                 if (FittingRoomPanel.curTab == MainTabs.Tab.Ugc)
-                {
                     LoadEvent.ReportPopupStatus("BuyBtnClicked", "ClickUGCBuy");
-                }
-                //上报新玩家行为埋点
                 if (SignInPanel.isNewPlayer)
                 {
                     LoadEvent.ReportPopupStatus("open", "pay_open");
-                    LoadEvent.ReportPopupStatus(target.Price.Value.ToString() + target.Name , "pay_id");
+                    LoadEvent.ReportPopupStatus(target.Price.Value.ToString() + target.Name, "pay_id");
                 }
+                TryBuyWithAutoExchange(Operation.Buy);
             });
 
             if (ShoppingBuyButton != null)
@@ -96,18 +96,14 @@ namespace UI.UIPanels.FittingRoom
                 shoppingBuyComp = ShoppingBuyButton.GetComponent<BuyButton>();
                 ShoppingBuyButton.onClick.AddListener(() =>
                 {
-                    OperationInvoke(Operation.ShoppingBuy);
-                    //上报UGC商城埋点
                     if (FittingRoomPanel.curTab == MainTabs.Tab.Ugc)
-                    {
                         LoadEvent.ReportPopupStatus("BuyBtnClicked", "ClickUGCBuy");
-                    }
-                    //上报新玩家行为埋点
                     if (SignInPanel.isNewPlayer)
                     {
                         LoadEvent.ReportPopupStatus("open", "pay_open");
                         LoadEvent.ReportPopupStatus(target.Price.Value.ToString() + target.Name, "pay_id");
                     }
+                    TryBuyWithAutoExchange(Operation.ShoppingBuy);
                 });
             }
 
@@ -199,12 +195,12 @@ namespace UI.UIPanels.FittingRoom
         private void AddCurrentTargetToShoppingCart()
         {
             if (target == null || target.Price == null) return;
-            var originalPrice = target.OriginalPrice ?? target.Price;
             var data = new ShoppingCartItemData
             {
                 id = target.Id,
-                price = (int)originalPrice.Value,
-                currencyType = (int)originalPrice.CurrencyType,
+                price = (int)target.Price.Value,
+                originalPrice = (int)(target.OriginalPrice?.Value ?? target.Price.Value),
+                currencyType = (int)target.Price.CurrencyType,
                 name = target.Name,
                 subType = target.subType,
                 goodsType = (int)target.GoodsType,
@@ -515,6 +511,75 @@ namespace UI.UIPanels.FittingRoom
         public void Like(Action<string> completeAction = null)
         {
             UgcLikeButton?.Like(completeAction);
+        }
+
+        // 余额不足时弹 BuyTipsPanel 静默兑换后再购买，支持所有货币类型
+        // 参考 ShoppingCartRootView：先检查钻石是否够兑换，够才弹 BuyTipsPanel，否则引导充值
+        private void TryBuyWithAutoExchange(Operation operation)
+        {
+            if (target?.Price == null) { OperationInvoke(operation); return; }
+
+            var currencyType = target.Price.CurrencyType;
+            int price = Mathf.CeilToInt(target.Price.Value);
+            int have = AccountDataManager.Inst.BalanceInfo.GetAccountCount(currencyType);
+
+            if (have >= price) { OperationInvoke(operation); return; }
+
+            int needNum = price - have;
+            int gemNum = AccountDataManager.Inst.BalanceInfo.GetAccountCount(CurrencyType.Gem);
+            int gemsToExchange;
+
+            switch (currencyType)
+            {
+                case CurrencyType.PinkCoin:
+                    // 与 ShoppingCartRootView 保持一致：JudgePinkCoin 内部处理钻石不足（弹充值引导）
+                    if (!ExchangeCoinPanel.JudgePinkCoin(needNum)) return;
+                    gemsToExchange = needNum;
+                    break;
+                case CurrencyType.Badge:
+                    gemsToExchange = needNum; // 1:1
+                    if (gemNum < gemsToExchange)
+                    {
+                        UIManager.Inst.OpenPanel(PanelId.GetMoreGemsPanel, gemsToExchange - gemNum);
+                        return;
+                    }
+                    break;
+                case CurrencyType.Coin:
+                    gemsToExchange = Mathf.CeilToInt(needNum / 10f); // 1:10
+                    if (gemNum < gemsToExchange)
+                    {
+                        UIManager.Inst.OpenPanel(PanelId.GetMoreGemsPanel, gemsToExchange - gemNum);
+                        return;
+                    }
+                    break;
+                case CurrencyType.Gem:
+                    UIManager.Inst.OpenPanel(PanelId.GetMoreGemsPanel, needNum);
+                    return;
+                default:
+                    OperationInvoke(operation);
+                    return;
+            }
+
+            // 钻石充足，弹确认面板后静默兑换再购买
+            var tipsPanel = UIManager.Inst.OpenPanel<RechargeBuyTipsPanel>(PanelId.RechargeBuyTipsPanel);
+            tipsPanel.Init(needNum, gemsToExchange, currencyType, () =>
+            {
+                var req = new ExchangeReq
+                {
+                    fromCurrency = (int)CurrencyType.Gem,
+                    toCurrency   = (int)currencyType,
+                    exchangeNum  = gemsToExchange
+                };
+                NetworkManager.Inst.SendHttpRequest(HttpUrlDefine.exchangePay, HttpMethod.POST,
+                    JsonConvert.SerializeObject(req),
+                    _ => AccountDataManager.Inst.BalanceInfo.Refresh(() => OperationInvoke(operation)),
+                    failData =>
+                    {
+                        AccountDataManager.Inst.BalanceInfo.Refresh();
+                        var rsp = JsonConvert.DeserializeObject<HttpResponseRawData>(failData);
+                        if (rsp != null && !string.IsNullOrEmpty(rsp.rmsg)) TipPanel.ShowToast(rsp.rmsg);
+                    });
+            });
         }
 
         private void OnSelectBtn()

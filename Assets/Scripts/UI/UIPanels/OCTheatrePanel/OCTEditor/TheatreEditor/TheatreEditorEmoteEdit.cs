@@ -95,10 +95,11 @@ public class TheatreEditorEmoteEdit : TheatreEditorUIBase<TheatreEditorDataCente
         Panel?.SetupSearchBar(DoSearch);
 
         _refreshing = true;
-        if (ownToggle != null && ownToggle.isOn) ownToggle.isOn = false;
+         if (pgcToggle != null && !pgcToggle.isOn) pgcToggle.isOn = false;
+        
         if (ugcToggle != null && ugcToggle.isOn) ugcToggle.isOn = false;
         if (singleToggle != null) singleToggle.isOn = true;
-        if (pgcToggle != null && !pgcToggle.isOn) pgcToggle.isOn = true;
+       if (ownToggle != null && ownToggle.isOn) ownToggle.isOn = true;
         _refreshing = false;
 
         StartCoroutine(RefreshListNextFrame());
